@@ -30,13 +30,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Bell, Play, Info, Clock, Target, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { getGameConfig } from "@/config/textualGames";
 
-export default function TextualGameStartPage() {
+function TextualGameStartContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const gameId = searchParams.get("game");
@@ -352,5 +352,17 @@ export default function TextualGameStartPage() {
         </DialogContent>
       </Dialog>
     </ProtectedRoute>
+  );
+}
+
+export default function TextualGameStartPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    }>
+      <TextualGameStartContent />
+    </Suspense>
   );
 }
