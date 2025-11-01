@@ -4,37 +4,36 @@ import { useState } from 'react';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Users, Activity, Phone, Mic, Target, Trophy } from 'lucide-react';
 import { DashboardCard } from '@/components/ui/dashboard-card';
-import { RevenueChart } from '@/components/ui/revenue-chart';
-import { UsersTable } from '@/components/ui/users-table';
-import { QuickActions } from '@/components/ui/quick-actions';
-import { SystemStatus } from '@/components/ui/system-status';
-import { RecentActivity } from '@/components/ui/recent-activity';
+import { WeeklyActivityChart } from '@/components/ui/weekly-activity-chart';
+import { RecentHistoryTable } from '@/components/ui/recent-history-table';
+import { LearningActions } from '@/components/ui/learning-actions';
+import { DiscoverExpressify } from '@/components/ui/infinite-training-bento';
 import { DashboardHeader } from '@/components/ui/dashboard-header';
 import { ExpressifySidebar } from '@/components/ui/expressify-sidebar';
 
 // Dashboard stats data
 const stats = [
   {
-    title: 'Active Learners',
-    value: '1,247',
+    title: 'Training Sessions',
+    value: '247',
     change: '+18%',
     changeType: 'positive' as const,
-    icon: Users,
+    icon: Target,
     color: 'text-blue-500',
     bgColor: 'bg-blue-500/10',
   },
   {
-    title: 'Practice Sessions',
-    value: '3,456',
+    title: 'Games Played',
+    value: '156',
     change: '+24%',
     changeType: 'positive' as const,
-    icon: Phone,
+    icon: Trophy,
     color: 'text-green-500',
     bgColor: 'bg-green-500/10',
   },
   {
     title: 'AI Conversations',
-    value: '8,923',
+    value: '89',
     change: '+32%',
     changeType: 'positive' as const,
     icon: Mic,
@@ -43,10 +42,10 @@ const stats = [
   },
   {
     title: 'Skills Improved',
-    value: '156',
-    change: '+12%',
+    value: '12',
+    change: '+15%',
     changeType: 'positive' as const,
-    icon: Target,
+    icon: Users,
     color: 'text-orange-500',
     bgColor: 'bg-orange-500/10',
   },
@@ -87,10 +86,10 @@ export default function ExpressifyDashboard() {
             <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
               <div className="px-2 sm:px-0">
                 <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                  Welcome Admin
+                  Welcome Back!
                 </h1>
                 <p className="text-muted-foreground text-sm sm:text-base">
-                  Here&apos;s what&apos;s happening with your platform today.
+                  Here&apos;s your learning progress and activities this week.
                 </p>
               </div>
 
@@ -105,19 +104,19 @@ export default function ExpressifyDashboard() {
               <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-3">
                 {/* Charts Section */}
                 <div className="space-y-4 sm:space-y-6 xl:col-span-2">
-                  <RevenueChart />
-                  <UsersTable onAddUser={handleAddUser} />
+                  <WeeklyActivityChart />
+                  <RecentHistoryTable />
                 </div>
 
-                {/* Sidebar Section */}
-                <div className="space-y-4 sm:space-y-6">
-                  <QuickActions
-                    onAddUser={handleAddUser}
-                    onExport={handleExport}
-                  />
-                  <SystemStatus />
-                  <RecentActivity />
+                {/* Sidebar Section - Full Height */}
+                <div className="flex flex-col">
+                  <LearningActions />
                 </div>
+              </div>
+
+              {/* Full Width Discover Expressify Section */}
+              <div className="mt-4 sm:mt-6">
+                <DiscoverExpressify />
               </div>
             </div>
           </div>

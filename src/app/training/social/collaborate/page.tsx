@@ -16,6 +16,8 @@ import Comp485 from '@/components/comp-485';
 import { useGameSessions, useGameSession } from '@/hooks/useCollaboration';
 import { toast } from 'sonner';
 import { Users, Plus, Search, Timer, Trophy, Gamepad2 } from 'lucide-react';
+import { ref, remove, get, onValue } from 'firebase/database';
+import { database } from '@/lib/firebase';
 
 export default function CollaboratePage() {
   const [joinCode, setJoinCode] = useState('');
@@ -27,6 +29,56 @@ export default function CollaboratePage() {
   // Use real-time game sessions from Firebase
   const { sessions: games, loading } = useGameSessions();
   const { joinGameSession } = useGameSession();
+
+  // Cleanup inactive games older than 1 hour
+  useEffect(() => {
+    const cleanupInactiveGames = async () => {
+      if (!games || games.length === 0) return;
+
+      const now = Date.now();
+      const ONE_HOUR = 60 * 60 * 1000; // 1 hour in milliseconds
+
+      for (const game of games) {
+        const gameAge = now - game.createdAt;
+        
+        // Check if game is older than 1 hour
+        if (gameAge > ONE_HOUR) {
+          // Check if game has any active users (check cursors for activity)
+          const cursorsRef = ref(database, `gameSessions/${game.id}/cursors`);
+          const cursorsSnapshot = await get(cursorsRef);
+          const cursors = cursorsSnapshot.val();
+          
+          let hasActiveUsers = false;
+          if (cursors) {
+            // Check if any cursor was updated in the last 5 minutes
+            const FIVE_MINUTES = 5 * 60 * 1000;
+            const activeCursors = Object.values(cursors).filter((cursor: any) => 
+              (now - cursor.lastUpdate) < FIVE_MINUTES
+            );
+            hasActiveUsers = activeCursors.length > 0;
+          }
+
+          // If no active users, delete the game
+          if (!hasActiveUsers) {
+            console.log(`Deleting inactive game: ${game.name} (${game.gameCode}) - Age: ${Math.floor(gameAge / 1000 / 60)} minutes`);
+            const gameRef = ref(database, `gameSessions/${game.id}`);
+            await remove(gameRef);
+            toast.info(`Cleaned up inactive game: ${game.name}`);
+          }
+        }
+      }
+    };
+
+    // Run cleanup immediately on mount
+    cleanupInactiveGames();
+
+    // Run cleanup every hour
+    const cleanupInterval = setInterval(() => {
+      cleanupInactiveGames();
+    }, 60 * 60 * 1000); // Run every hour
+
+    return () => clearInterval(cleanupInterval);
+  }, [games]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -286,12 +338,25 @@ export default function CollaboratePage() {
 
                                   <Button
                                     onClick={() => handleJoinGame(game.gameCode)}
-                                    disabled={game.players.length >= game.maxPlayers}
+                                    disabled={game.players.length >= game.maxPlayers && !game.players.some(p => p.id === user?.uid)}
                                     variant={game.status === 'waiting' ? 'default' : 'outline'}
                                     className={game.status === 'waiting' ? 'bg-violet-600 hover:bg-violet-700' : ''}
                                   >
-                                    {game.players.length >= game.maxPlayers ? 'Full' : 
-                                     game.status === 'playing' ? 'Spectate' : 'Join'}
+                                    {(() => {
+                                      const isParticipant = game.players.some(p => p.id === user?.uid);
+                                      const isFull = game.players.length >= game.maxPlayers;
+                                      
+                                      if (isParticipant) {
+                                        return 'Rejoin';
+                                      }
+                                      if (isFull) {
+                                        return 'Full';
+                                      }
+                                      if (game.status === 'playing') {
+                                        return 'Spectate';
+                                      }
+                                      return 'Join';
+                                    })()}
                                   </Button>
                                 </div>
                               </div>

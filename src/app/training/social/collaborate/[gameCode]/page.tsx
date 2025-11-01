@@ -26,8 +26,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useGameSessions, useGameSession } from '@/hooks/useCollaboration';
-import { ref, set, get, onValue } from 'firebase/database';
+import { ref, set, get, onValue, remove } from 'firebase/database';
 import { database } from '@/lib/firebase';
+import { generateWikipediaSentence, WikipediaSentence, validateSentence } from '@/lib/wikipediaService';
 
 // Types
 interface WordItem {
@@ -36,6 +37,7 @@ interface WordItem {
   isPlaced: boolean;
   placedInSlot?: number;
   draggedBy?: string;
+  isCorrect?: boolean;
 }
 
 interface GameSentence {
@@ -44,11 +46,12 @@ interface GameSentence {
   slots: Array<{
     id: number;
     correctWord: string;
-    hint: string;
+    position: number;
   }>;
   words: WordItem[];
   difficulty: string;
   theme: string;
+  original?: string;
 }
 
 interface Cursor {
@@ -77,63 +80,6 @@ const UserAvatar = ({ user, size = "md" }: { user: any; size?: "sm" | "md" | "lg
   );
 };
 
-// Sample sentences for the game
-const GAME_SENTENCES: GameSentence[] = [
-  {
-    id: '1',
-    template: 'The ___ cat jumped over the ___ fence.',
-    slots: [
-      { id: 0, correctWord: 'quick', hint: 'fast' },
-      { id: 1, correctWord: 'tall', hint: 'high' }
-    ],
-    words: [
-      { id: 'w1', text: 'quick', isPlaced: false },
-      { id: 'w2', text: 'slow', isPlaced: false },
-      { id: 'w3', text: 'tall', isPlaced: false },
-      { id: 'w4', text: 'short', isPlaced: false }
-    ],
-    difficulty: 'easy',
-    theme: 'Animals'
-  },
-  {
-    id: '2',
-    template: 'The weather today is ___ and the sky looks ___.',
-    slots: [
-      { id: 0, correctWord: 'beautiful', hint: 'nice' },
-      { id: 1, correctWord: 'clear', hint: 'not cloudy' }
-    ],
-    words: [
-      { id: 'w1', text: 'beautiful', isPlaced: false },
-      { id: 'w2', text: 'ugly', isPlaced: false },
-      { id: 'w3', text: 'clear', isPlaced: false },
-      { id: 'w4', text: 'cloudy', isPlaced: false },
-      { id: 'w5', text: 'amazing', isPlaced: false },
-      { id: 'w6', text: 'terrible', isPlaced: false }
-    ],
-    difficulty: 'medium',
-    theme: 'Weather'
-  },
-  {
-    id: '3',
-    template: 'The ___ scientist discovered a ___ solution to the ___ problem.',
-    slots: [
-      { id: 0, correctWord: 'brilliant', hint: 'very smart' },
-      { id: 1, correctWord: 'creative', hint: 'innovative' },
-      { id: 2, correctWord: 'complex', hint: 'difficult' }
-    ],
-    words: [
-      { id: 'w1', text: 'brilliant', isPlaced: false },
-      { id: 'w2', text: 'lazy', isPlaced: false },
-      { id: 'w3', text: 'creative', isPlaced: false },
-      { id: 'w4', text: 'boring', isPlaced: false },
-      { id: 'w5', text: 'complex', isPlaced: false },
-      { id: 'w6', text: 'simple', isPlaced: false }
-    ],
-    difficulty: 'hard',
-    theme: 'Science'
-  }
-];
-
 // Player colors for cursors
 const PLAYER_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', 
@@ -153,7 +99,7 @@ export default function GamePage() {
     chatMessages, 
     loading: gameLoading, 
     addChatMessage, 
-    togglePlayerReady 
+    togglePlayerReady
   } = useGameSession(gameCode);
 
   // Game state
@@ -165,11 +111,16 @@ export default function GamePage() {
   const [gameProgress, setGameProgress] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [chatMessage, setChatMessage] = useState('');
+  const [joinedAt, setJoinedAt] = useState<number>(Date.now());
+  const [playerScores, setPlayerScores] = useState<Record<string, number>>({});
+  const [playerMadeMove, setPlayerMadeMove] = useState(false); // Track if current user made a move this sentence
+  const [sentenceStartTime, setSentenceStartTime] = useState<number>(Date.now());
 
-  // Refs for game area
+  // Refs for game area and timer
   const gameAreaRef = useRef<HTMLDivElement>(null);
   const draggedWordRef = useRef<string | null>(null);
   const wordsRef = useRef<WordItem[]>([]);
+  const gameDataRef = useRef(gameData);
 
   // Update refs when state changes
   useEffect(() => {
@@ -179,6 +130,10 @@ export default function GamePage() {
   useEffect(() => {
     wordsRef.current = words;
   }, [words]);
+
+  useEffect(() => {
+    gameDataRef.current = gameData;
+  }, [gameData]);
 
   // Player color assignment
   const getPlayerColor = useCallback((playerId: string) => {
@@ -199,6 +154,36 @@ export default function GamePage() {
     });
   };
 
+  // Helper function to convert WikipediaSentence to GameSentence
+  const convertWikiToGameSentence = (wikiSentence: WikipediaSentence): GameSentence => {
+    return {
+      id: `wiki-${Date.now()}`,
+      template: wikiSentence.blankedTemplate,
+      slots: wikiSentence.slots,
+      words: wikiSentence.words.map(w => ({
+        id: w.id,
+        text: w.text,
+        isPlaced: w.isPlaced,
+      })),
+      difficulty: wikiSentence.difficulty,
+      theme: wikiSentence.topic,
+      original: wikiSentence.original,
+    };
+  };
+
+  // Helper function to generate new sentence based on game difficulty
+  const generateNewSentence = async (): Promise<GameSentence> => {
+    const difficulty = (gameData?.difficulty || 'easy') as 'easy' | 'medium' | 'hard';
+    try {
+      const wikiSentence = await generateWikipediaSentence(difficulty);
+      return convertWikiToGameSentence(wikiSentence);
+    } catch (error) {
+      console.error('Error generating Wikipedia sentence:', error);
+      toast.error('Failed to generate new sentence. Please try again.');
+      throw error;
+    }
+  };
+
   // Initialize game with synchronized sentence (only host creates, others sync)
   useEffect(() => {
     if (gamePhase === 'playing' && gameData?.id && user) {
@@ -217,18 +202,30 @@ export default function GamePage() {
           // Host initializes the game
           const isHost = gameData.players.find((p: any) => p.id === user.uid)?.isHost;
           if (isHost) {
-            const randomSentence = GAME_SENTENCES[Math.floor(Math.random() * GAME_SENTENCES.length)];
-            const initialState = {
-              currentSentence: randomSentence,
-              words: randomSentence.words,
-              progress: 0,
-              timeLeft: gameData?.timeLimit ? gameData.timeLimit * 60 : 300
-            };
-            
-            set(gameStateRef, initialState);
-            setCurrentSentence(randomSentence);
-            setWords(randomSentence.words);
-            setGameProgress(0);
+            // Initialize player scores to 100
+            const scoresRef = ref(database, `gameSessions/${gameData.id}/playerScores`);
+            const initialScores: Record<string, number> = {};
+            gameData.players.forEach((player: any) => {
+              initialScores[player.id] = 100;
+            });
+            set(scoresRef, initialScores);
+
+            // Generate Wikipedia sentence
+            generateNewSentence().then(randomSentence => {
+              const initialState = {
+                currentSentence: randomSentence,
+                words: randomSentence.words,
+                progress: 0,
+                sentenceStartTime: Date.now()
+              };
+              
+              set(gameStateRef, initialState);
+              setCurrentSentence(randomSentence);
+              setWords(randomSentence.words);
+              setGameProgress(0);
+            }).catch(error => {
+              console.error('Failed to initialize game:', error);
+            });
           }
         }
       });
@@ -237,13 +234,31 @@ export default function GamePage() {
       const unsubscribe = onValue(gameStateRef, (snapshot) => {
         const gameState = snapshot.val();
         if (gameState) {
+          // Check if sentence changed (new sentence loaded)
+          if (currentSentence && gameState.currentSentence?.id !== currentSentence.id) {
+            setPlayerMadeMove(false); // Reset move tracking for new sentence
+            setSentenceStartTime(gameState.sentenceStartTime || Date.now());
+          }
+          
           setCurrentSentence(gameState.currentSentence);
           setWords(gameState.words || []);
           setGameProgress(gameState.progress || 0);
         }
       });
 
-      return () => unsubscribe();
+      // Listen for player scores
+      const scoresRef = ref(database, `gameSessions/${gameData.id}/playerScores`);
+      const unsubscribeScores = onValue(scoresRef, (snapshot) => {
+        const scores = snapshot.val();
+        if (scores) {
+          setPlayerScores(scores);
+        }
+      });
+
+      return () => {
+        unsubscribe();
+        unsubscribeScores();
+      };
     }
   }, [gamePhase, gameData?.id, user]);
 
@@ -255,8 +270,7 @@ export default function GamePage() {
     
     if (currentGame) {
       if (currentGame.status === 'finished') {
-        toast.info('Game has ended');
-        router.push('/training/social/collaborate');
+        // Don't redirect here - let the timer handler redirect to results
         return;
       }
       
@@ -277,22 +291,92 @@ export default function GamePage() {
     }
   }, [gameData]);
 
-  // Timer effect
+  // Authoritative Firebase Timer System - Never pauses, always accurate
   useEffect(() => {
-    if (gamePhase === 'playing' && timeLeft > 0) {
-      const timer = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            setGamePhase('finished');
-            return 0;
+    if (gamePhase !== 'playing' || !gameData?.id) return;
+    
+    console.log('Timer system initializing for game:', gameData.id);
+    const timerRef = ref(database, `gameSessions/${gameData.id}/timer`);
+    const gameId = gameData.id;
+    
+    let timerInterval: NodeJS.Timeout | null = null;
+    
+    // Listen for timer data from Firebase
+    const unsubscribe = onValue(timerRef, (snapshot) => {
+      const timerData = snapshot.val();
+      
+      if (timerData) {
+        console.log('Timer data received from Firebase:', timerData);
+        const { startTime, duration } = timerData;
+        
+        // Clear any existing interval
+        if (timerInterval) {
+          clearInterval(timerInterval);
+        }
+        
+        // Calculate and update remaining time every second
+        const updateTimer = () => {
+          const now = Date.now();
+          const elapsed = Math.floor((now - startTime) / 1000);
+          const remaining = Math.max(0, duration - elapsed);
+          
+          setTimeLeft(remaining);
+          
+          // When time runs out, end game
+          if (remaining <= 0) {
+            if (timerInterval) clearInterval(timerInterval);
+            
+            const currentGameData = gameDataRef.current;
+            if (currentGameData && currentGameData.status !== 'finished') {
+              const isHost = currentGameData.players.find((p: any) => p.id === user?.uid)?.isHost;
+              if (isHost) {
+                console.log('Timer reached 0, host ending game');
+                handleGameEnd();
+              }
+            }
           }
-          return prev - 1;
-        });
-      }, 1000);
+        };
+        
+        // Update immediately
+        updateTimer();
+        
+        // Then update every second
+        timerInterval = setInterval(updateTimer, 1000);
+        
+        console.log('Timer interval started, updating every second');
+      } else {
+        console.log('No timer data found in Firebase - waiting for initialization');
+      }
+    });
 
-      return () => clearInterval(timer);
+    return () => {
+      console.log('Timer cleanup - clearing interval and unsubscribing');
+      if (timerInterval) clearInterval(timerInterval);
+      unsubscribe();
+    };
+  }, [gamePhase, gameData?.id, user?.uid]);
+
+  // Handle game end - update status and navigate to results
+  const handleGameEnd = async () => {
+    if (!gameData?.id) return;
+    
+    const gameRef = ref(database, `gameSessions/${gameData.id}`);
+    
+    try {
+      // Update game status to finished
+      await set(ref(database, `gameSessions/${gameData.id}/status`), 'finished');
+      
+      toast.success('Game finished! Viewing results...');
+      
+      // Navigate to results page
+      setTimeout(() => {
+        router.push(`/training/social/collaborate/${gameCode}/results`);
+      }, 1000);
+    } catch (error) {
+      console.error('Error ending game:', error);
+      toast.error('Failed to end game');
     }
-  }, [gamePhase, timeLeft]);
+  };
 
   // Mouse tracking for cursor sharing with dragged word info
   useEffect(() => {
@@ -478,67 +562,209 @@ export default function GamePage() {
   };
 
   const handleWordPlace = (wordId: string, slotId: number) => {
-    if (!gameData?.id || !currentSentence) return;
+    if (!gameData?.id || !currentSentence || !user) return;
 
-    const updatedWords = words.map(word => {
-      if (word.id === wordId) {
+    // Clear dragged word state immediately
+    setDraggedWord(null);
+
+    const word = words.find(w => w.id === wordId);
+    if (!word) return;
+
+    // Check if word is already being dragged by someone else
+    if (word.draggedBy && word.draggedBy !== user.uid) {
+      toast.error('This word is being used by another player');
+      return;
+    }
+
+    // Check if slot is already occupied
+    const existingWord = words.find(w => w.placedInSlot === slotId);
+    if (existingWord) {
+      // If it's an incorrect locked word, can't replace it
+      if (existingWord.isCorrect === false) {
+        toast.error('Cannot replace incorrect words');
+        return;
+      }
+      // If another player is currently dragging the word, don't allow placement
+      if (existingWord.draggedBy && existingWord.draggedBy !== user.uid) {
+        toast.error('This slot is being used by another player');
+        return;
+      }
+    }
+
+    // Find the correct word for this slot
+    const slot = currentSentence.slots.find(s => s.id === slotId);
+    if (!slot) return;
+
+    const isCorrect = word.text.toLowerCase() === slot.correctWord.toLowerCase();
+    const difficulty = gameData?.difficulty || 'easy';
+
+    const updatedWords = words.map(w => {
+      if (w.id === wordId) {
         const newWord = {
-          ...word,
+          ...w,
           isPlaced: true,
-          placedInSlot: slotId
+          placedInSlot: slotId,
+          isCorrect: isCorrect // Track correctness
         };
         delete newWord.draggedBy;
         return newWord;
       }
       // If another word was in this slot, remove it
-      if (word.placedInSlot === slotId) {
+      if (w.placedInSlot === slotId) {
         const newWord = {
-          ...word,
+          ...w,
           isPlaced: false
         };
         delete newWord.placedInSlot;
+        delete newWord.isCorrect;
         return newWord;
       }
-      return word;
+      return w;
     });
 
-    setWords(updatedWords);
-
-    // Check if sentence is complete
-    const filledSlots = updatedWords.filter(w => w.isPlaced).length;
-    const totalSlots = currentSentence.slots.length;
-    const progress = (filledSlots / totalSlots) * 100;
-    setGameProgress(progress);
-
-    // Update Firebase with progress and cleaned data
+    // Verify with Firebase before committing (race condition check)
     const gameStateRef = ref(database, `gameSessions/${gameData.id}/gameState`);
-    set(gameStateRef, {
-      words: cleanWordsForFirebase(updatedWords),
-      currentSentence: currentSentence,
-      progress: progress
-    });
+    get(gameStateRef).then((snapshot) => {
+      const currentState = snapshot.val();
+      if (currentState && currentState.words) {
+        // Check if slot is still available in Firebase
+        const firebaseWords = currentState.words;
+        const slotOccupied = Object.values(firebaseWords).find((w: any) => w.placedInSlot === slotId);
+        
+        if (slotOccupied && (slotOccupied as any).id !== wordId) {
+          // Another player got there first
+          toast.error('Another player placed a word here first');
+          // Revert local state
+          const revertedWords = words.map(w => {
+            if (w.id === wordId && w.draggedBy === user.uid) {
+              const newWord = { ...w };
+              delete newWord.draggedBy;
+              return newWord;
+            }
+            return w;
+          });
+          setWords(revertedWords);
+          return;
+        }
+        
+        // Word is being used by another player in Firebase
+        const wordInFirebase = Object.values(firebaseWords).find((w: any) => w.id === wordId);
+        if (wordInFirebase && (wordInFirebase as any).draggedBy && (wordInFirebase as any).draggedBy !== user.uid) {
+          toast.error('Another player is using this word');
+          return;
+        }
+      }
 
-    if (filledSlots === totalSlots) {
-      toast.success('Sentence completed! Great teamwork!');
-      addChatMessage(gameData.id, '🎉 Sentence completed successfully!', true);
-      
-      // Auto-start new sentence after 3 seconds
-      setTimeout(() => {
-        resetGame();
-      }, 3000);
-    }
+      // All checks passed, commit the changes
+      setWords(updatedWords);
+
+      // Mark player as having made a move this sentence
+      setPlayerMadeMove(true);
+
+      // Update player score immediately
+      const playerScoresRef = ref(database, `gameSessions/${gameData.id}/playerScores/${user.uid}`);
+      get(playerScoresRef).then((snapshot) => {
+        const currentScore = snapshot.val() || 100;
+        let newScore = currentScore;
+        
+        if (isCorrect) {
+          // Increase score for correct placement (capped at 100)
+          newScore = Math.min(100, currentScore + Math.floor(100 / currentSentence.slots.length));
+        } else {
+          // Decrease score for incorrect placement (capped at 0)
+          newScore = Math.max(0, currentScore - Math.floor(100 / currentSentence.slots.length));
+        }
+        
+        set(playerScoresRef, newScore);
+      });
+
+      // Clear cursor's dragged word text in Firebase immediately
+      const cursorRef = ref(database, `gameSessions/${gameData.id}/cursors/${user.uid}`);
+      get(cursorRef).then((snapshot) => {
+        const cursorData = snapshot.val();
+        if (cursorData) {
+          const updatedCursor = { ...cursorData };
+          delete updatedCursor.draggedWordText;
+          set(cursorRef, updatedCursor);
+        }
+      });
+
+      // Check if sentence is complete
+      const filledSlots = updatedWords.filter(w => w.isPlaced).length;
+      const totalSlots = currentSentence.slots.length;
+      const progress = (filledSlots / totalSlots) * 100;
+      setGameProgress(progress);
+
+      // Update Firebase with progress and cleaned data
+      set(gameStateRef, {
+        words: cleanWordsForFirebase(updatedWords),
+        currentSentence: currentSentence,
+        progress: progress
+      });
+
+      // Check if all slots are filled
+      if (filledSlots === totalSlots) {
+        const placedWords = updatedWords
+          .filter(w => w.isPlaced && w.placedInSlot !== undefined)
+          .map(w => ({
+            slotId: w.placedInSlot!,
+            word: w.text
+          }));
+
+        const validation = validateSentence(placedWords, currentSentence.slots);
+        const scorePercentage = Math.round((validation.correctCount / validation.totalCount) * 100);
+
+        if (validation.isCorrect) {
+          toast.success(`Perfect! All ${validation.totalCount} words correct!`);
+          addChatMessage(gameData.id, `Sentence completed! Score: ${scorePercentage}%`, true);
+        } else {
+          toast.warning(`${validation.correctCount}/${validation.totalCount} words correct (${scorePercentage}%)`);
+          addChatMessage(gameData.id, `Sentence completed! Score: ${scorePercentage}% (${validation.correctCount}/${validation.totalCount} correct)`, true);
+        }
+        
+        // Apply inactivity penalty to players who didn't participate
+        if (!playerMadeMove) {
+          const inactivityPenalty = 10; // Deduct 10 points for no participation
+          const playerScoresRef = ref(database, `gameSessions/${gameData.id}/playerScores/${user.uid}`);
+          get(playerScoresRef).then((snapshot) => {
+            const currentScore = snapshot.val() || 100;
+            const newScore = Math.max(0, currentScore - inactivityPenalty);
+            set(playerScoresRef, newScore);
+          });
+          toast.warning(`-${inactivityPenalty} points for inactivity`, {
+            description: 'Make at least one move per sentence!'
+          });
+        }
+        
+        // Immediately load new sentence (no delay, timer keeps running for cheat protection)
+        // Only host generates and syncs the new sentence
+        const isHost = gameData.players.find((p: any) => p.id === user?.uid)?.isHost;
+        if (isHost) {
+          resetGame();
+        }
+      }
+    });
   };
 
   const handleRemoveWordFromSlot = (wordId: string) => {
     if (!gameData?.id || !currentSentence) return;
 
-    const updatedWords = words.map(word => {
-      if (word.id === wordId) {
-        const newWord = { ...word, isPlaced: false };
+    const word = words.find(w => w.id === wordId);
+    
+    // Don't allow removing incorrect words
+    if (word?.isCorrect === false) {
+      toast.error('Cannot remove incorrect words');
+      return;
+    }
+
+    const updatedWords = words.map(w => {
+      if (w.id === wordId) {
+        const newWord = { ...w, isPlaced: false };
         delete newWord.placedInSlot;
+        delete newWord.isCorrect;
         return newWord;
       }
-      return word;
+      return w;
     });
 
     setWords(updatedWords);
@@ -561,21 +787,33 @@ export default function GamePage() {
   const resetGame = async () => {
     if (!gameData?.id) return;
     
-    const randomSentence = GAME_SENTENCES[Math.floor(Math.random() * GAME_SENTENCES.length)];
-    setCurrentSentence(randomSentence);
-    setWords(randomSentence.words);
-    setGameProgress(0);
-    setTimeLeft(gameData.timeLimit * 60);
+    // Only host should generate new sentences to prevent race conditions
+    const isHost = gameData.players.find((p: any) => p.id === user?.uid)?.isHost;
+    if (!isHost) return;
     
-    // Reset in Firebase
-    const gameStateRef = ref(database, `gameSessions/${gameData.id}/gameState`);
-    set(gameStateRef, {
-      words: randomSentence.words,
-      currentSentence: randomSentence,
-      progress: 0
-    });
-    
-    addChatMessage(gameData.id, '🔄 New sentence loaded!', true);
+    try {
+      const randomSentence = await generateNewSentence();
+      setCurrentSentence(randomSentence);
+      setWords(randomSentence.words);
+      setGameProgress(0);
+      
+      // Timer is managed separately in /timer path - NEVER touch it here
+      // It runs independently based on startTime and duration
+      
+      // Update Firebase with new sentence - all players will sync automatically
+      const gameStateRef = ref(database, `gameSessions/${gameData.id}/gameState`);
+      await set(gameStateRef, {
+        words: randomSentence.words,
+        currentSentence: randomSentence,
+        progress: 0,
+        sentenceStartTime: Date.now() // Track when sentence started for inactivity penalties
+      });
+      
+      addChatMessage(gameData.id, 'New sentence loaded!', true);
+    } catch (error) {
+      console.error('Failed to reset game:', error);
+      toast.error('Failed to load new sentence');
+    }
   };
 
   const handleSendMessage = async () => {
@@ -599,6 +837,22 @@ export default function GamePage() {
     }
   };
 
+  const handleCancelGame = async () => {
+    if (!gameData?.id || !isUserHost) return;
+    
+    try {
+      // Delete the game from Firebase
+      const gameRef = ref(database, `gameSessions/${gameData.id}`);
+      await remove(gameRef);
+      
+      toast.success('Game cancelled successfully');
+      router.push('/training/social/collaborate');
+    } catch (error: any) {
+      console.error('Failed to cancel game:', error);
+      toast.error('Failed to cancel game');
+    }
+  };
+
   const handleEndGameForAll = async () => {
     if (!gameData?.id || !isUserHost) return;
     
@@ -613,14 +867,48 @@ export default function GamePage() {
   };
 
   const startGame = async () => {
-    if (!gameData?.id || !isUserHost) return;
+    console.log('[Page] startGame called - isUserHost:', isUserHost, 'gameData.id:', gameData?.id);
+    if (!gameData?.id || !isUserHost) {
+      console.log('[Page] startGame aborted - missing requirements');
+      return;
+    }
     
     try {
+      console.log('[Page] Initializing game start sequence...');
+      
+      // Initialize all player scores to 100
+      const scoresRef = ref(database, `gameSessions/${gameData.id}/playerScores`);
+      const initialScores: Record<string, number> = {};
+      gameData.players.forEach((player: any) => {
+        initialScores[player.id] = 100;
+      });
+      await set(scoresRef, initialScores);
+      console.log('[Page] Player scores initialized');
+      
+      // Initialize the authoritative timer - this NEVER pauses
+      const timerRef = ref(database, `gameSessions/${gameData.id}/timer`);
+      const duration = gameData?.timeLimit ? gameData.timeLimit * 60 : 600; // Convert minutes to seconds
+      console.log('[Page] Setting timer with duration:', duration, 'seconds (', gameData?.timeLimit, 'minutes)');
+      
+      await set(timerRef, {
+        startTime: Date.now(), // Authoritative start timestamp
+        duration: duration,     // Total duration in seconds
+        initialized: true
+      });
+      console.log('[Page] Timer initialized in Firebase at path:', `gameSessions/${gameData.id}/timer`);
+      
       await set(ref(database, `gameSessions/${gameData.id}/status`), 'playing');
-      await addChatMessage(gameData.id, '🎮 Game started! Work together to complete sentences!', true);
+      console.log('[Page] Game status set to playing');
+      
+      await addChatMessage(gameData.id, 'Game started! Work together to complete sentences', true);
+      
       setGamePhase('playing');
+      console.log('[Page] Local gamePhase set to playing');
+      
       toast.success('Game started!');
+      console.log('[Page] startGame completed successfully');
     } catch (error: any) {
+      console.error('[Page] Error starting game:', error);
       toast.error('Failed to start game');
     }
   };
@@ -654,56 +942,39 @@ export default function GamePage() {
         const placedWord = words.find(w => w.placedInSlot === slot.id);
         
         elements.push(
+          <span key={`space-${index}`} className="inline-block w-2"></span>
+        );
+        elements.push(
           <div
             key={`slot-${slot.id}`}
-            className="inline-block mx-2 min-w-[120px] h-12 border-2 border-dashed border-violet-300 rounded-lg bg-violet-50 dark:bg-violet-950 relative"
+            className="inline-block min-w-[120px] h-12 border-2 border-dashed border-border rounded-lg bg-muted/20 relative"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => handleSlotDrop(e, slot.id)}
           >
             {placedWord ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-violet-100 dark:bg-violet-900 border-2 border-violet-400 rounded-lg group">
-                <span className="font-medium text-violet-700 dark:text-violet-300">{placedWord.text}</span>
-                <button
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => handleRemoveWordFromSlot(placedWord.id)}
-                >
-                  <X className="h-3 w-3" />
-                </button>
+              <div className={`absolute inset-0 flex items-center justify-center bg-muted/30 border-2 rounded-lg ${
+                placedWord.isCorrect === true ? 'border-green-600' : 
+                placedWord.isCorrect === false ? 'border-red-600' : 'border-border/50'
+              }`}>
+                <span className="font-medium">{placedWord.text}</span>
               </div>
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-xs text-violet-600 dark:text-violet-400">
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
                 Drop here
               </div>
             )}
           </div>
         );
+        elements.push(
+          <span key={`space-after-${index}`} className="inline-block w-2"></span>
+        );
       }
     });
 
-    return <div className="text-lg leading-relaxed">{elements}</div>;
+    return <div className="text-base sm:text-lg leading-relaxed">{elements}</div>;
   };
 
-  // Handle game finished redirection
-  useEffect(() => {
-    if (gamePhase === 'finished' && gameData?.status === 'finished') {
-      const currentUserPlayer = gameData?.players.find((p: any) => p.id === user?.uid);
-      const isHost = currentUserPlayer?.isHost || false;
-      
-      if (!isHost) {
-        // Non-host players get redirected faster
-        setTimeout(() => {
-          toast.info('Game has ended. Returning to lobby...');
-          router.push('/training/social/collaborate');
-        }, 2000);
-      } else {
-        // Host gets longer time to see results before being redirected
-        setTimeout(() => {
-          toast.info('Game ended. Returning to lobby...');
-          router.push('/training/social/collaborate');
-        }, 5000);
-      }
-    }
-  }, [gamePhase, gameData?.status, gameData?.players, user?.uid, router]);
+  // Game finished state is now handled by the timer and navigates to results page
 
   if (gameLoading || !gameData) {
     return (
@@ -732,430 +1003,536 @@ export default function GamePage() {
           <ExpressifySidebar />
           <main className="flex-1 overflow-auto">
             <div className="min-h-screen bg-background">
-              <div className="container mx-auto px-4 py-8">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-4">
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => router.push('/training/social/collaborate')}
-                      className="p-2"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                    </Button>
-                    <div>
-                      <h1 className="text-2xl font-bold">🧩 Collaborative Sentence Builder</h1>
-                      <p className="text-muted-foreground">
-                        Game Code: <span className="font-mono font-medium">{gameCode}</span>
-                      </p>
+              {/* Header */}
+              <div className="sticky top-0 z-10 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                <div className="flex flex-1 flex-col gap-2 p-2 sm:gap-4 sm:p-4">
+                  <div className="mx-auto w-full max-w-6xl">
+                    <div className="flex items-center justify-between px-2 sm:px-0">
+                      <div className="flex items-center gap-3">
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => router.push('/training/social/collaborate')}
+                          className="h-8 w-8 p-0"
+                        >
+                          <ArrowLeft className="h-4 w-4" />
+                        </Button>
+                        <div>
+                          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">🧩 Sentence Builder</h1>
+                          <p className="text-xs text-muted-foreground sm:text-sm">
+                            Code: <span className="font-mono font-medium">{gameCode}</span>
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        {gamePhase === 'waiting' && (
+                          <>
+                            {!isUserHost && (
+                              <Button
+                                onClick={handleToggleReady}
+                                size="sm"
+                                variant={currentUserPlayer?.isReady ? "default" : "outline"}
+                              >
+                                {currentUserPlayer?.isReady ? '✓ Ready' : 'Mark Ready'}
+                              </Button>
+                            )}
+                            {isUserHost && (
+                              <>
+                                {allPlayersReady && hasMinimumPlayers ? (
+                                  <Button onClick={startGame} size="sm">
+                                    Start Game
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    onClick={handleToggleReady}
+                                    size="sm"
+                                    variant={currentUserPlayer?.isReady ? "default" : "outline"}
+                                  >
+                                    {currentUserPlayer?.isReady ? '✓ Ready' : 'Mark Ready'}
+                                  </Button>
+                                )}
+                                <Button
+                                  onClick={handleCancelGame}
+                                  variant="destructive"
+                                  size="sm"
+                                >
+                                  Cancel Game
+                                </Button>
+                              </>
+                            )}
+                            {!isUserHost && (
+                              <Button
+                                onClick={() => router.push('/training/social/collaborate')}
+                                variant="outline"
+                                size="sm"
+                              >
+                                Leave
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        
+                        {isUserHost && gamePhase === 'playing' && (
+                          <Button 
+                            onClick={handleEndGameForAll}
+                            variant="outline"
+                            size="sm"
+                          >
+                            End Game
+                          </Button>
+                        )}
+                        
+                        {!isUserHost && gamePhase === 'playing' && (
+                          <Button
+                            onClick={() => router.push('/training/social/collaborate')}
+                            variant="outline"
+                            size="sm"
+                          >
+                            <ArrowLeft className="h-3 w-3 mr-1" />
+                            Leave
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-3">
-                    {gamePhase === 'waiting' && (
-                      <>
-                        <Button
-                          onClick={handleToggleReady}
-                          variant={currentUserPlayer?.isReady ? "default" : "outline"}
-                          className="flex items-center gap-2"
-                        >
-                          {currentUserPlayer?.isReady ? '✓ Ready' : 'Mark Ready'}
-                        </Button>
-                        {isUserHost && allPlayersReady && hasMinimumPlayers && (
-                          <Button onClick={startGame} className="bg-green-600 hover:bg-green-700">
-                            Start Game
-                          </Button>
-                        )}
-                        <Button
-                          onClick={() => router.push('/training/social/collaborate')}
-                          variant="outline"
-                          className="text-red-600 border-red-600 hover:bg-red-50 dark:hover:bg-red-950"
-                        >
-                          Leave Game
-                        </Button>
-                      </>
-                    )}
-                    
-                    {isUserHost && gamePhase === 'playing' && (
-                      <>
-                        <Button onClick={resetGame} variant="outline">
-                          New Sentence
-                        </Button>
-                        <Button 
-                          onClick={handleEndGameForAll}
-                          variant="outline"
-                          className="text-red-600 border-red-600 hover:bg-red-50 dark:hover:bg-red-950"
-                        >
-                          End Game
-                        </Button>
-                      </>
-                    )}
-                    
-                    {!isUserHost && gamePhase === 'playing' && (
-                      <Button
-                        onClick={() => router.push('/training/social/collaborate')}
-                        variant="outline"
-                        className="text-orange-600 border-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950 flex items-center gap-2"
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                        Leave Game
-                      </Button>
-                    )}
-                  </div>
                 </div>
+              </div>
 
-                {/* Game Status */}
-                {gamePhase === 'waiting' && (
-                  <Card className="mb-6">
-                    <CardContent className="p-6">
-                      <div className="text-center">
-                        <div className="text-6xl mb-4">🎯</div>
-                        <h2 className="text-xl font-semibold mb-2">Waiting for Players</h2>
-                        <p className="text-muted-foreground mb-4">
-                          Ready Players: {readyPlayersCount}/{totalPlayersCount} 
-                          {!hasMinimumPlayers && ` (Need at least 2 players)`}
-                        </p>
-                        <Progress value={(readyPlayersCount / Math.max(totalPlayersCount, 1)) * 100} className="w-full max-w-md mx-auto" />
-                        {isUserHost && !allPlayersReady && (
-                          <p className="text-sm text-muted-foreground mt-2">
-                            Waiting for all players to be ready...
-                          </p>
-                        )}
-                        <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
-                          <h3 className="font-semibold text-blue-700 dark:text-blue-300 mb-2">How to Play:</h3>
-                          <p className="text-sm text-blue-600 dark:text-blue-400">
-                            Work together to complete sentences by dragging words into the blanks. 
-                            You can see each other's cursors and coordinate your moves!
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+              {/* Main Content */}
+              <div className="flex flex-1 flex-col gap-2 p-2 pt-0 sm:gap-4 sm:p-4">
+                <div className="min-h-[calc(100vh-8rem)] flex-1 rounded-lg p-3 sm:rounded-xl sm:p-4 md:p-6">
+                  <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
 
-                {gamePhase === 'finished' && (
-                  <Card className="mb-6">
-                    <CardContent className="p-6">
-                      <div className="text-center">
-                        <Trophy className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-                        <h2 className="text-xl font-semibold mb-2">Game Complete!</h2>
-                        <p className="text-muted-foreground">
-                          Great teamwork on completing the sentences!
-                        </p>
-                        {isUserHost && (
-                          <Button onClick={startGame} className="mt-4">
-                            Play Again
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                  {/* Main Game Area */}
-                  <div className="lg:col-span-3 space-y-6 min-w-0">
-                    {gamePhase === 'playing' && (
-                      <>
-                        {/* Game Info */}
-                        <div className="flex items-center justify-between p-4 bg-gradient-to-r from-violet-50 to-blue-50 dark:from-violet-950 dark:to-blue-950 rounded-lg border">
-                          <div className="flex items-center gap-6">
-                            <div className="flex items-center gap-2">
-                              <Timer className="h-5 w-5 text-violet-600" />
-                              <span className="font-mono text-xl font-bold text-violet-700 dark:text-violet-300">
-                                {formatTime(timeLeft)}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Target className="h-5 w-5 text-blue-600" />
-                              <span className="font-semibold text-blue-700 dark:text-blue-300">
-                                Progress: {Math.round(gameProgress)}%
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <MousePointer2 className="h-4 w-4 text-green-600" />
-                              <span className="text-sm text-green-700 dark:text-green-300">
-                                {Object.keys(cursors).length} active cursors
-                              </span>
-                            </div>
-                          </div>
-                          <Progress value={gameProgress} className="w-40" />
-                        </div>
-
-                        {/* Main Game Area with Cursor Tracking */}
-                        <div 
-                          ref={gameAreaRef}
-                          className="relative space-y-6 w-full"
-                        >
-                          {/* Debug: Show cursor count */}
-                          {Object.keys(cursors).length > 0 && (
-                            <div className="absolute top-0 right-0 bg-black text-white text-xs px-2 py-1 rounded z-50">
-                              Cursors: {Object.keys(cursors).length}
-                            </div>
-                          )}
-                          
-                          {/* Other Players' Cursors - Positioned relative to main game area */}
-                          {Object.values(cursors).map((cursor) => {
-                            // Convert percentage coordinates back to pixels for rendering
-                            const gameArea = gameAreaRef.current;
-                            if (!gameArea) return null;
-                            
-                            const rect = gameArea.getBoundingClientRect();
-                            // Add safeguards for edge cases
-                            if (rect.width === 0 || rect.height === 0) return null;
-                            
-                            const pixelX = Math.max(0, Math.min((cursor.x / 100) * rect.width, rect.width));
-                            const pixelY = Math.max(0, Math.min((cursor.y / 100) * rect.height, rect.height));
-                            
-                            return (
-                              <div
-                                key={cursor.playerId}
-                                className="absolute pointer-events-none z-50 transition-all duration-150"
-                                style={{
-                                  left: pixelX,
-                                  top: pixelY,
-                                  transform: 'translate(-8px, -8px)'
-                                }}
-                              >
-                                <MousePointer2 
-                                  className="h-5 w-5"
-                                  style={{ color: cursor.color, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
-                                />
-                                <div 
-                                  className="absolute top-6 left-0 px-2 py-1 rounded-md text-xs text-white shadow-lg whitespace-nowrap font-medium"
-                                  style={{ backgroundColor: cursor.color }}
-                                >
-                                  {cursor.playerName}
-                                  {cursor.draggedWordText && (
-                                    <span className="text-yellow-200">
-                                      {` (${cursor.draggedWordText})`}
-                                    </span>
-                                  )}
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
+                      {/* Game Status - Waiting/Finished */}
+                      {gamePhase === 'waiting' && (
+                        <div className="xl:col-span-2">
+                          <Card className="border-border/50 h-full">
+                            <CardContent className="p-6 h-full flex items-center justify-center">
+                              <div className="text-center w-full">
+                                <div className="flex justify-center mb-4">
+                                  <svg className="w-16 h-16" viewBox="0 0 64 64" fill="none">
+                                  <circle cx="32" cy="32" r="30" stroke="#fff" strokeWidth="4" fill="none" />
+                                  <circle cx="32" cy="32" r="18" stroke="#e5e7eb" strokeWidth="3" fill="none" />
+                                  <circle cx="32" cy="32" r="8" stroke="#e5e7eb" strokeWidth="2" fill="none" />
+                                  <path d="M32 10v8M32 46v8M54 32h-8M18 32h-8" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
+                                  <circle cx="32" cy="32" r="3" stroke="#fff" strokeWidth="2" fill="none" />
+                                  </svg>
+                                </div>
+                                <h2 className="text-xl font-semibold mb-2">Waiting for Players</h2>
+                                <p className="text-sm text-muted-foreground mb-4">
+                                  Ready Players: {readyPlayersCount}/{totalPlayersCount} 
+                                  {!hasMinimumPlayers && ` (Need at least 2 players)`}
+                                </p>
+                                <Progress value={(readyPlayersCount / Math.max(totalPlayersCount, 1)) * 100} className="w-full max-w-md mx-auto" />
+                                {isUserHost && !allPlayersReady && (
+                                  <p className="text-xs text-muted-foreground mt-2">
+                                    Waiting for all players to be ready...
+                                  </p>
+                                )}
+                                <div className="mt-6 p-4 border border-border/50 rounded-lg bg-muted/20 max-w-lg mx-auto">
+                                  <h3 className="text-sm font-semibold mb-2">How to Play</h3>
+                                  <p className="text-xs text-muted-foreground">
+                                    Work together to complete sentences by dragging words into the blanks. 
+                                    You can see each other's cursors and coordinate your moves!
+                                  </p>
                                 </div>
                               </div>
-                            );
-                          })}
-
-                          {/* Sentence Area */}
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="flex items-center gap-2">
-                                <MessageCircle className="h-5 w-5" />
-                                Complete the Sentence
-                              </CardTitle>
-                              <CardDescription>
-                                Drag words from below to fill in the blanks. Work together with your team!
-                              </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="p-8 bg-gradient-to-br from-gray-50 to-blue-50 dark:from-gray-900 dark:to-blue-950 rounded-lg min-h-[140px] flex items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-700">
-                                {renderSentenceWithSlots()}
-                              </div>
-                              {currentSentence && (
-                                <div className="mt-4 flex items-center justify-center gap-4 text-sm text-muted-foreground">
-                                  <Badge variant="outline">{currentSentence.theme}</Badge>
-                                  <Badge variant="outline">{currentSentence.difficulty}</Badge>
-                                  <span>{currentSentence.slots.length} blanks to fill</span>
-                                </div>
-                              )}
                             </CardContent>
                           </Card>
+                        </div>
+                      )}
 
-                          {/* Word Bank */}
-                          <Card>
+                      {gamePhase === 'finished' && (
+                        <div className="xl:col-span-2">
+                          <Card className="border-border/50 h-full">
+                            <CardContent className="p-6 h-full flex items-center justify-center">
+                              <div className="text-center">
+                                <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                                <h2 className="text-xl font-semibold mb-2">Game Complete!</h2>
+                                <p className="text-sm text-muted-foreground">
+                                  Great teamwork on completing the sentences!
+                                </p>
+                                {isUserHost && (
+                                  <Button onClick={startGame} className="mt-4" size="sm">
+                                    Play Again
+                                  </Button>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      )}
+
+                      {/* Chat Sidebar for Waiting/Finished phases */}
+                      {(gamePhase === 'waiting' || gamePhase === 'finished') && (
+                        <div className="space-y-4 sm:space-y-6">
+                          <Card className="border-border/50">
                             <CardHeader>
-                              <CardTitle className="flex items-center gap-2">
-                                <Target className="h-5 w-5" />
-                                Word Bank
-                                <Badge variant="secondary" className="ml-2">
-                                  {words.filter(w => !w.isPlaced).length} words left
-                                </Badge>
+                              <CardTitle className="text-lg flex items-center gap-2">
+                                <MessageCircle className="h-4 w-4" />
+                                Team Chat
                               </CardTitle>
-                              <CardDescription>
-                                Drag these words to complete the sentence above. Watch for other players' cursors!
-                              </CardDescription>
                             </CardHeader>
                             <CardContent>
-                              <div className="relative min-h-[250px] p-8 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 dark:from-blue-950 dark:via-purple-950 dark:to-pink-950 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 overflow-hidden">
-                                {/* Draggable Words */}
-                                <div className="flex flex-wrap gap-4 justify-center">
-                                {words.filter(word => !word.isPlaced).map((word) => (
-                                  <div
-                                    key={word.id}
-                                    className={`px-6 py-3 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-xl cursor-move transition-all duration-200 hover:shadow-lg select-none ${
-                                      word.draggedBy && word.draggedBy !== user?.uid 
-                                        ? 'opacity-60 cursor-not-allowed border-red-300 bg-red-50 dark:bg-red-950' 
-                                        : 'hover:scale-105 hover:border-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950'
-                                    } ${
-                                      draggedWord === word.id ? 'shadow-xl scale-110 rotate-2 border-violet-400 bg-violet-100 dark:bg-violet-900 ring-4 ring-violet-200 dark:ring-violet-800' : ''
-                                    }`}
-                                    draggable={!word.draggedBy || word.draggedBy === user?.uid}
-                                    onDragStart={(e) => {
-                                      if (word.draggedBy && word.draggedBy !== user?.uid) {
-                                        e.preventDefault();
-                                        return;
+                              <div className="space-y-3">
+                                <div className="h-[400px] overflow-y-auto border border-border/50 rounded-lg p-3 bg-muted/10">
+                                  {chatMessages.filter(msg => msg.timestamp >= joinedAt).length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">No messages yet... Start chatting!</p>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      {chatMessages.filter(msg => msg.timestamp >= joinedAt).map((message) => (
+                                        <div key={message.id} className="text-xs">
+                                          {message.isSystem ? (
+                                            <div className="text-center text-muted-foreground italic">
+                                              {message.message}
+                                            </div>
+                                          ) : (
+                                            <div>
+                                              <span className="font-medium">
+                                                {message.senderName}:
+                                              </span>{' '}
+                                              <span className="text-muted-foreground">{message.message}</span>
+                                              <span className="text-[10px] text-muted-foreground/70 ml-1">
+                                                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex gap-2">
+                                  <Input
+                                    value={chatMessage}
+                                    onChange={(e) => setChatMessage(e.target.value)}
+                                    placeholder="Type a message..."
+                                    className="text-sm"
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleSendMessage();
                                       }
-                                      handleWordDragStart(e, word.id);
                                     }}
-                                    onDragEnd={handleWordDragEnd}
-                                  >
-                                    <span className="text-sm font-medium">{word.text}</span>
-                                    {word.draggedBy && word.draggedBy !== user?.uid && (
-                                      <div className="text-xs text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
-                                        <MousePointer2 className="h-3 w-3" />
-                                        {gameData?.players.find((p: any) => p.id === word.draggedBy)?.name}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-
-                              {words.filter(word => !word.isPlaced).length === 0 && (
-                                <div className="flex items-center justify-center h-32">
-                                  <div className="text-center">
-                                    <Trophy className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
-                                    <p className="text-lg font-semibold text-green-700 dark:text-green-300">All words placed!</p>
-                                    <p className="text-sm text-muted-foreground">Waiting for next sentence...</p>
-                                  </div>
+                                  />
+                                  <Button onClick={handleSendMessage} size="sm">
+                                    <Send className="h-3 w-3" />
+                                  </Button>
                                 </div>
-                              )}
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        </div>
-                      </>
-                    )}
-
-                    {/* Chat */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <MessageCircle className="h-5 w-5" />
-                          Team Chat
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <div className="h-32 overflow-y-auto border rounded-lg p-3 bg-gray-50 dark:bg-gray-900">
-                            {chatMessages.length === 0 ? (
-                              <p className="text-muted-foreground text-sm">No messages yet... Start chatting to coordinate!</p>
-                            ) : (
-                              <div className="space-y-2">
-                                {chatMessages.map((message) => (
-                                  <div key={message.id} className="text-sm">
-                                    {message.isSystem ? (
-                                      <div className="text-center text-muted-foreground italic">
-                                        {message.message}
-                                      </div>
-                                    ) : (
-                                      <div>
-                                        <span className="font-medium text-violet-600">
-                                          {message.senderName}:
-                                        </span>{' '}
-                                        <span>{message.message}</span>
-                                        <span className="text-xs text-muted-foreground ml-2">
-                                          {new Date(message.timestamp).toLocaleTimeString()}
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
                               </div>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <Input
-                              value={chatMessage}
-                              onChange={(e) => setChatMessage(e.target.value)}
-                              placeholder="Type a message to coordinate..."
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleSendMessage();
-                                }
-                              }}
-                            />
-                            <Button onClick={handleSendMessage} size="sm">
-                              <Send className="h-4 w-4" />
-                            </Button>
-                          </div>
+                            </CardContent>
+                          </Card>
                         </div>
-                      </CardContent>
-                    </Card>
-                  </div>
+                      )}
 
-                  {/* Sidebar */}
-                  <div className="space-y-6">
-                    {/* Players */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Users className="h-5 w-5" />
-                          Players ({gameData?.players.length || 0}/{gameData?.maxPlayers || 4})
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          {gameData?.players.map((player: any, index: number) => (
-                            <div 
-                              key={player.id} 
-                              className="flex items-center gap-3 p-3 rounded-lg border bg-white dark:bg-gray-900/50"
-                            >
-                              <UserAvatar user={player} size="sm" />
-                              <div className="flex-1 min-w-0">
+                      {/* Main Game Area */}
+                      {gamePhase === 'playing' && (
+                        <>
+                          <div className="xl:col-span-2 space-y-4 sm:space-y-6 min-w-0">
+                            {/* Game Info Bar */}
+                            <div className="flex flex-wrap items-center justify-between gap-4 p-4 border border-border/50 rounded-lg bg-muted/20">
+                              <div className="flex flex-wrap items-center gap-4 sm:gap-6">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-medium text-sm truncate">{player.name}</span>
-                                  {player.isHost && (
-                                    <Crown className="h-3 w-3 text-yellow-500" />
-                                  )}
+                                  <Timer className="h-4 w-4 text-muted-foreground" />
+                                  <span className="font-mono text-lg font-bold">
+                                    {formatTime(timeLeft)}
+                                  </span>
                                 </div>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <div 
-                                    className="w-3 h-3 rounded-full border-2 border-white shadow-sm"
-                                    style={{ backgroundColor: getPlayerColor(player.id) }}
-                                  ></div>
-                                  <span>Cursor</span>
-                                  {gamePhase === 'playing' && Object.keys(cursors).includes(player.id) && (
-                                    <span className="text-green-600 dark:text-green-400">• Active</span>
-                                  )}
+                                <div className="flex items-center gap-2">
+                                  <Target className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm font-medium">
+                                    {Math.round(gameProgress)}%
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <MousePointer2 className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm text-muted-foreground">
+                                    {Object.keys(cursors).length} cursors
+                                  </span>
                                 </div>
                               </div>
-                              <Badge 
-                                variant={player.isReady ? 'default' : 'secondary'}
-                                className="text-xs"
-                              >
-                                {gamePhase === 'waiting' ? (player.isReady ? 'Ready' : 'Not Ready') : 'Playing'}
-                              </Badge>
+                              <Progress value={gameProgress} className="w-full sm:w-40" />
                             </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
 
-                    {/* Game Info */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Game Info</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Current Theme:</span>
-                          <span className="font-medium">{currentSentence?.theme || 'Loading...'}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Difficulty:</span>
-                          <span className="font-medium">{currentSentence?.difficulty || 'Loading...'}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Time Limit:</span>
-                          <span className="font-medium">{gameData?.timeLimit || 10} minutes</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Creator:</span>
-                          <span className="font-medium">{gameData?.players.find((p: any) => p.isHost)?.name || 'Unknown'}</span>
-                        </div>
-                      </CardContent>
-                    </Card>
+                            {/* Main Game Area with Cursor Tracking */}
+                            <div 
+                              ref={gameAreaRef}
+                              className="relative space-y-4 sm:space-y-6 w-full"
+                            >
+                              {/* Other Players' Cursors - Positioned relative to main game area */}
+                              {Object.values(cursors).map((cursor) => {
+                                // Convert percentage coordinates back to pixels for rendering
+                                const gameArea = gameAreaRef.current;
+                                if (!gameArea) return null;
+                                
+                                const rect = gameArea.getBoundingClientRect();
+                                // Add safeguards for edge cases
+                                if (rect.width === 0 || rect.height === 0) return null;
+                                
+                                const pixelX = Math.max(0, Math.min((cursor.x / 100) * rect.width, rect.width));
+                                const pixelY = Math.max(0, Math.min((cursor.y / 100) * rect.height, rect.height));
+                                
+                                return (
+                                  <div
+                                    key={cursor.playerId}
+                                    className="absolute pointer-events-none z-50 transition-all duration-150"
+                                    style={{
+                                      left: pixelX,
+                                      top: pixelY,
+                                      transform: 'translate(-8px, -8px)'
+                                    }}
+                                  >
+                                    <MousePointer2 
+                                      className="h-5 w-5"
+                                      style={{ color: cursor.color, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
+                                    />
+                                    <div 
+                                      className="absolute top-6 left-0 px-2 py-1 rounded-md text-xs text-white shadow-lg whitespace-nowrap font-medium"
+                                      style={{ backgroundColor: cursor.color }}
+                                    >
+                                      {cursor.playerName}
+                                      {cursor.draggedWordText && (
+                                        <span className="text-yellow-200">
+                                          {` (${cursor.draggedWordText})`}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+
+                              {/* Sentence Area */}
+                              <Card className="border-border/50">
+                                <CardHeader>
+                                  <CardTitle className="text-lg flex items-center gap-2">
+                                    <MessageCircle className="h-4 w-4" />
+                                    Complete the Sentence
+                                  </CardTitle>
+                                  <CardDescription className="text-xs">
+                                    Drag words from below to fill in the blanks. Work together with your team!
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="p-6 sm:p-8 border border-border/50 rounded-lg bg-muted/20 min-h-[140px] flex items-center justify-center">
+                                    {renderSentenceWithSlots()}
+                                  </div>
+                                  {currentSentence && (
+                                    <div className="mt-4 flex items-center justify-center gap-3 text-xs text-muted-foreground">
+                                      <Badge variant="outline" className="text-xs">{currentSentence.theme}</Badge>
+                                      <Badge variant="outline" className="text-xs">{currentSentence.difficulty}</Badge>
+                                      <span>{currentSentence.slots.length} blanks</span>
+                                    </div>
+                                  )}
+                                </CardContent>
+                              </Card>
+
+                              {/* Word Bank */}
+                              <Card className="border-border/50">
+                                <CardHeader>
+                                  <CardTitle className="text-lg flex items-center gap-2">
+                                    <Target className="h-4 w-4" />
+                                    Word Bank
+                                    <Badge variant="secondary" className="ml-2 text-xs">
+                                      {words.filter(w => !w.isPlaced).length} left
+                                    </Badge>
+                                  </CardTitle>
+                                  <CardDescription className="text-xs">
+                                    Drag these words to complete the sentence above
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="relative min-h-[250px] p-6 sm:p-8 border border-border/50 rounded-lg bg-muted/20 overflow-hidden">
+                                    {/* Draggable Words */}
+                                    <div className="flex flex-wrap gap-3 justify-center">
+                                      {words.filter(word => !word.isPlaced).map((word) => (
+                                        <div
+                                          key={word.id}
+                                          className={`px-5 py-2.5 bg-background border border-border rounded-lg cursor-move transition-all duration-200 hover:shadow-md select-none ${
+                                            word.draggedBy && word.draggedBy !== user?.uid 
+                                              ? 'opacity-50 cursor-not-allowed' 
+                                              : 'hover:scale-105 hover:border-foreground/30'
+                                          } ${
+                                            draggedWord === word.id ? 'shadow-lg scale-105 border-foreground/50 ring-2 ring-muted-foreground/20' : ''
+                                          }`}
+                                          draggable={!word.draggedBy || word.draggedBy === user?.uid}
+                                          onDragStart={(e) => {
+                                            if (word.draggedBy && word.draggedBy !== user?.uid) {
+                                              e.preventDefault();
+                                              return;
+                                            }
+                                            handleWordDragStart(e, word.id);
+                                          }}
+                                          onDragEnd={handleWordDragEnd}
+                                        >
+                                          <span className="text-sm font-medium">{word.text}</span>
+                                          {word.draggedBy && word.draggedBy !== user?.uid && (
+                                            <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                              <MousePointer2 className="h-3 w-3" />
+                                              {gameData?.players.find((p: any) => p.id === word.draggedBy)?.name}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                    {words.filter(word => !word.isPlaced).length === 0 && (
+                                      <div className="flex items-center justify-center h-32">
+                                        <div className="text-center">
+                                          <Trophy className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                                          <p className="text-base font-semibold">All words placed!</p>
+                                          <p className="text-xs text-muted-foreground">Waiting for next sentence...</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          </div>
+
+                          {/* Sidebar - Chat for Playing phase */}
+                          <div className="space-y-4 sm:space-y-6 h-full flex flex-col">
+                            <Card className="border-border/50 flex-1 flex flex-col">
+                              <CardHeader>
+                                <CardTitle className="text-lg flex items-center gap-2">
+                                  <MessageCircle className="h-4 w-4" />
+                                  Team Chat
+                                </CardTitle>
+                              </CardHeader>
+                              <CardContent className="flex-1 flex flex-col">
+                                <div className="space-y-3 flex-1 flex flex-col">
+                                  <div className="flex-1 overflow-y-auto border border-border/50 rounded-lg p-3 bg-muted/10">
+                                    {chatMessages.filter(msg => msg.timestamp >= joinedAt).length === 0 ? (
+                                      <p className="text-xs text-muted-foreground">No messages yet... Start chatting!</p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {chatMessages.filter(msg => msg.timestamp >= joinedAt).map((message) => (
+                                          <div key={message.id} className="text-xs">
+                                            {message.isSystem ? (
+                                              <div className="text-center text-muted-foreground italic">
+                                                {message.message}
+                                              </div>
+                                            ) : (
+                                              <div>
+                                                <span className="font-medium">
+                                                  {message.senderName}:
+                                                </span>{' '}
+                                                <span className="text-muted-foreground">{message.message}</span>
+                                                <span className="text-[10px] text-muted-foreground/70 ml-1">
+                                                  {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Input
+                                      value={chatMessage}
+                                      onChange={(e) => setChatMessage(e.target.value)}
+                                      placeholder="Type a message..."
+                                      className="text-sm"
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          handleSendMessage();
+                                        }
+                                      }}
+                                    />
+                                    <Button onClick={handleSendMessage} size="sm">
+                                      <Send className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Bottom Section - Players and Game Info Side by Side */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                      {/* Players */}
+                      <Card className="border-border/50">
+                        <CardHeader>
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            Players ({gameData?.players.length || 0}/{gameData?.maxPlayers || 4})
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            {gameData?.players.map((player: any) => (
+                              <div 
+                                key={player.id} 
+                                className="flex items-center gap-3 p-2.5 rounded-lg border border-border/50 bg-muted/10"
+                              >
+                                <UserAvatar user={player} size="sm" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm truncate">{player.name}</span>
+                                    {player.isHost && (
+                                      <Crown className="h-3 w-3 text-muted-foreground" />
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <div 
+                                      className="w-2 h-2 rounded-full border border-border"
+                                      style={{ backgroundColor: getPlayerColor(player.id) }}
+                                    ></div>
+                                    <span>Score: {playerScores[player.id] !== undefined ? playerScores[player.id] : 100}</span>
+                                    {gamePhase === 'playing' && Object.keys(cursors).includes(player.id) && (
+                                      <span>• Active</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <Badge 
+                                  variant={player.isReady ? 'default' : 'secondary'}
+                                  className="text-xs"
+                                >
+                                  {gamePhase === 'waiting' ? (player.isReady ? 'Ready' : 'Not Ready') : 'Playing'}
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Game Info */}
+                      <Card className="border-border/50">
+                        <CardHeader>
+                          <CardTitle className="text-lg">Game Info</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Current Theme:</span>
+                            <span className="font-medium">{currentSentence?.theme || 'Loading...'}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Difficulty:</span>
+                            <span className="font-medium">{currentSentence?.difficulty || 'Loading...'}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Time Limit:</span>
+                            <span className="font-medium">{gameData?.timeLimit || 10} minutes</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Creator:</span>
+                            <span className="font-medium">{gameData?.players.find((p: any) => p.isHost)?.name || 'Unknown'}</span>
+                          </div>
+                          <div className="pt-2 border-t border-border/50">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Game Code:</span>
+                              <code className="font-mono text-xs bg-muted/30 px-2 py-1 rounded">{gameCode}</code>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
                   </div>
                 </div>
               </div>

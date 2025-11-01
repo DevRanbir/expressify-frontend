@@ -253,12 +253,40 @@ export const useGameSession = (gameCode?: string) => {
     if (!userPlayer?.isHost) throw new Error('Only host can start the game');
 
     try {
+      console.log('[Hook] startGame called for session:', sessionId);
+      
+      // Initialize player scores to 100
+      const scoresRef = ref(database, `gameSessions/${sessionId}/playerScores`);
+      const initialScores: Record<string, number> = {};
+      session.players.forEach((player) => {
+        initialScores[player.id] = 100;
+      });
+      await set(scoresRef, initialScores);
+      console.log('[Hook] Player scores initialized');
+
+      // Initialize authoritative timer in Firebase
+      const timerRef = ref(database, `gameSessions/${sessionId}/timer`);
+      const duration = session?.timeLimit ? session.timeLimit * 60 : 600; // minutes to seconds
+      console.log('[Hook] Setting timer with duration:', duration, 'seconds (', session?.timeLimit, 'minutes)');
+      
+      await set(timerRef, {
+        startTime: Date.now(),
+        duration: duration,
+        initialized: true
+      });
+      console.log('[Hook] Timer initialized in Firebase');
+
+      // Update game status to playing
       await set(ref(database, `gameSessions/${sessionId}/status`), 'playing');
+      console.log('[Hook] Game status set to playing');
+      
       await addChatMessage(sessionId, 'Game started! Good luck everyone!', true);
+      console.log('[Hook] startGame completed successfully');
     } catch (err) {
       console.error('Error starting game:', err);
+      throw err;
     }
-  }, [user, session]);
+  }, [user, session, addChatMessage]);
 
   // Subscribe to session updates
   useEffect(() => {

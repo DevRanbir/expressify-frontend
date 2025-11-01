@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { MicIcon, EyeIcon, EyeOffIcon, MailIcon } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { MicIcon, EyeIcon, EyeOffIcon, MailIcon, ArrowLeft, Sparkles, Lock, Mail } from 'lucide-react';
 
 export default function SignInPage() {
   const [email, setEmail] = useState('');
@@ -69,126 +71,170 @@ export default function SignInPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-950 dark:to-purple-950">
-      <div className="container mx-auto px-4 py-16">
-        <div className="max-w-md mx-auto">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <Link href="/start" className="inline-flex items-center justify-center mb-6">
-              <div className="bg-violet-600 p-3 rounded-xl">
-                <MicIcon className="h-8 w-8 text-white" />
-              </div>
-            </Link>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-              Welcome Back
-            </h1>
-            <p className="text-gray-600 dark:text-gray-300">
-              Sign in to continue your communication journey
-            </p>
-          </div>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-6 sm:py-12">
+        <div className="max-w-6xl mx-auto">
+          {/* Back Button */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="mb-6"
+          >
+            <Button variant="ghost" asChild className="gap-2">
+              <Link href="/landing">
+                <ArrowLeft className="h-4 w-4" />
+                Back to home
+              </Link>
+            </Button>
+          </motion.div>
 
-          <Card className="border-violet-200 dark:border-violet-800 shadow-lg">
-            <CardHeader>
-              <CardTitle>Sign In</CardTitle>
-              <CardDescription>
-                Enter your credentials to access your account
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center mt-25">
+            {/* Left Side - Branding & Features */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="space-y-6 order-2 lg:order-1"
+            >
+              <div className="space-y-8">
+
+                <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
+                  Welcome Back to
+                  <span className="block text-primary mt-2">Expressify</span>
+                </h1>
+                <p className="text-lg text-muted-foreground">
+                  Continue your journey to confident communication. Access your personalized training modules and track your progress.
+                </p>
+              </div>
+
+
+
+            </motion.div>
+
+            {/* Right Side - Sign In Form */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="order-1 lg:order-2"
+            >
+              <Card className="border-2">
+                <CardHeader className="space-y-1">
+                  <CardTitle className="text-2xl">Sign In</CardTitle>
+                  <CardDescription>
+                    Enter your credentials to access your account
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
-              <form onSubmit={handleEmailSignIn} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="Enter your email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="border-violet-200 focus:border-violet-400"
-                  />
-                </div>
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  {/* Google Sign In - Primary */}
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="lg"
+                    className="w-full gap-2"
+                    onClick={handleGoogleSignIn}
+                    disabled={loading}
+                  >
+                    <MailIcon className="h-5 w-5" />
+                    Continue with Google
+                  </Button>
+
                   <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className="border-violet-200 focus:border-violet-400 pr-10"
-                    />
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-card px-2 text-muted-foreground">
+                        Or continue with email
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Email Sign In Form */}
+                  <form onSubmit={handleEmailSignIn} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email Address</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="email"
+                          type="email"
+                          placeholder="you@example.com"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          required
+                          className="pl-10"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="password">Password</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="password"
+                          type={showPassword ? "text" : "password"}
+                          placeholder="Enter your password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          required
+                          className="pl-10 pr-10"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? (
+                            <EyeOffIcon className="h-4 w-4" />
+                          ) : (
+                            <EyeIcon className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
                     <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                      onClick={() => setShowPassword(!showPassword)}
+                      type="submit"
+                      size="lg"
+                      className="w-full"
+                      disabled={loading}
                     >
-                      {showPassword ? (
-                        <EyeOffIcon className="h-4 w-4" />
+                      {loading ? (
+                        <span className="flex items-center gap-2">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                          Signing In...
+                        </span>
                       ) : (
-                        <EyeIcon className="h-4 w-4" />
+                        'Sign In'
                       )}
                     </Button>
+                  </form>
+
+                  <div className="text-center text-sm">
+                    <span className="text-muted-foreground">Don't have an account? </span>
+                    <Link href="/start/signup" className="font-medium text-primary hover:underline">
+                      Sign up
+                    </Link>
                   </div>
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full bg-violet-600 hover:bg-violet-700 text-white"
-                  disabled={loading}
-                >
-                  {loading ? 'Signing In...' : 'Sign In'}
-                </Button>
-              </form>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-gray-300" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-2 text-muted-foreground">
-                    Or continue with
-                  </span>
-                </div>
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full border-violet-300 text-violet-600 hover:bg-violet-50"
-                onClick={handleGoogleSignIn}
-                disabled={loading}
-              >
-                <MailIcon className="h-4 w-4 mr-2" />
-                Google
-              </Button>
-
-              <div className="text-center">
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  Don't have an account?{' '}
-                  <Link href="/start/signup" className="text-violet-600 hover:text-violet-700 font-medium">
-                    Sign up
-                  </Link>
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="text-center mt-6">
-            <Link href="/start" className="text-sm text-violet-600 hover:text-violet-700">
-              ← Back to home
-            </Link>
+                </CardContent>
+              </Card>
+            </motion.div>
           </div>
         </div>
       </div>

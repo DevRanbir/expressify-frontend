@@ -88,6 +88,25 @@ function SidebarProvider({
     [setOpenProp, open],
   );
 
+  // On mount, read cookie (if any) to initialize the sidebar state so it's
+  // consistent across pages. Only apply for non-mobile layouts.
+  React.useEffect(() => {
+    try {
+      if (typeof document === 'undefined') return;
+      const match = document.cookie.match(new RegExp('(?:^|; )' + SIDEBAR_COOKIE_NAME + '=([^;]*)'));
+      if (match && match[1]) {
+        const cookieVal = match[1];
+        const parsed = cookieVal === 'true' || cookieVal === '1';
+        // Use internal setter to avoid rewriting cookie unnecessarily
+        _setOpen(parsed);
+      }
+    } catch (e) {
+      // ignore
+    }
+    // run only once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);

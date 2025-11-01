@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { memo } from "react";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { UserAvatar } from "@/components/UserAvatar";
 import Link from "next/link";
+import Image from "next/image";
 import {
   Sidebar,
   SidebarContent,
@@ -19,6 +20,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
@@ -61,8 +63,11 @@ import {
   MessageCircle,
   ChevronDown,
   LogOut,
+  HomeIcon,
+  ScreenShareIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import HomePage from "@/app/me/home/page";
 
 interface NavigationItem {
   name: string;
@@ -76,7 +81,22 @@ const navigationItems: Record<string, NavigationItem> = {
   home: {
     name: "Home",
     href: "/me/home",
-    icon: Mic,
+    icon: HomeIcon,
+  },
+  "learning-path": {
+    name: "Learning Path",
+    href: "/me/learning-path",
+    icon: Target,
+  },
+  "clarity-cafe": {
+    name: "Clarity Cafe",
+    href: "/clarity-cafe",
+    icon: HelpCircle,
+  },
+  history: {
+    name: "History",
+    href: "/me/history",
+    icon: BarChart3,
   },
   training: {
     name: "Training Modules",
@@ -153,82 +173,23 @@ const navigationItems: Record<string, NavigationItem> = {
   },
   "textual-practice": {
     name: "Textual Practice",
-    children: ["word-puzzles", "story-builder", "chat-simulator", "debate-master", "vocabulary-quest", "grammar-challenge"],
+    href: "/learning/textual",
     icon: FileText,
-  },
-  "word-puzzles": {
-    name: "Word Puzzles",
-    href: "/training/textual/word-puzzles",
-  },
-  "story-builder": {
-    name: "Story Builder",
-    href: "/training/textual/story-builder",
-  },
-  "chat-simulator": {
-    name: "Chat Simulator",
-    href: "/training/textual/chat-simulator",
-  },
-  "debate-master": {
-    name: "Debate Master",
-    href: "/training/textual/debate-master",
-  },
-  "vocabulary-quest": {
-    name: "Vocabulary Quest",
-    href: "/training/textual/vocabulary-quest",
-  },
-  "grammar-challenge": {
-    name: "Grammar Challenge",
-    href: "/training/textual/grammar-challenge",
   },
   "vocal-practice": {
     name: "Vocal Practice",
-    children: ["pronunciation-pro", "accent-trainer", "voice-modulation", "speaking-rhythm", "vocal-warm-ups", "clarity-coach"],
-    icon: VolumeX,
-  },
-  "pronunciation-pro": {
-    name: "Pronunciation Pro",
-    href: "/training/vocal/pronunciation-pro",
-  },
-  "accent-trainer": {
-    name: "Accent Trainer",
-    href: "/training/vocal/accent-trainer",
-  },
-  "voice-modulation": {
-    name: "Voice Modulation",
-    href: "/training/vocal/voice-modulation",
-  },
-  "speaking-rhythm": {
-    name: "Speaking Rhythm",
-    href: "/training/vocal/speaking-rhythm",
-  },
-  "vocal-warm-ups": {
-    name: "Vocal Warm-ups",
-    href: "/training/vocal/vocal-warm-ups",
-  },
-  "clarity-coach": {
-    name: "Clarity Coach",
-    href: "/training/vocal/clarity-coach",
+    href: "/learning/vocal",
+    icon: Mic,
   },
   "visual-practice": {
     name: "Visual Practice",
-    children: ["body-language-lab", "gesture-guide", "presentation-posture"],
-    icon: Eye,
-  },
-  "body-language-lab": {
-    name: "Body Language Lab",
-    href: "/training/visual/body-language-lab",
-  },
-  "gesture-guide": {
-    name: "Gesture Guide",
-    href: "/training/visual/gesture-guide",
-  },
-  "presentation-posture": {
-    name: "Presentation Posture",
-    href: "/training/visual/presentation-posture",
+    href: "/learning/visual",
+    icon: ScreenShareIcon,
   },
   "play-with-friend": {
     name: "Play with Friend",
     children: ["collaborate", "challenge"],
+    href: "/training/social",
     icon: Users2,
   },
   "collaborate": {
@@ -244,6 +205,24 @@ const navigationItems: Record<string, NavigationItem> = {
     name: "VC a Person",
     href: "/training/vc-person",
     icon: MessageCircle,
+  },
+  "ai-calling": {
+    name: "AI Calling",
+    href: "/training/ai-calling",
+    children: ["general-call", "debate-call", "roleplay-call"],
+    icon: Phone,
+  },
+  "general-call": {
+    name: "General Call",
+    href: "/training/ai-calling/general",
+  },
+  "debate-call": {
+    name: "Debate Call",
+    href: "/training/ai-calling/debate",
+  },
+  "roleplay-call": {
+    name: "Role Play Call",
+    href: "/training/ai-calling/roleplay",
   },
   progress: {
     name: "Progress & Analytics",
@@ -290,12 +269,39 @@ const ExpressifyTreeNavigation = () => {
 
   // Define the main navigation items (direct children)
   const mainNavItems = [
+    "home",
+    "history",
     "textual-practice", 
     "vocal-practice", 
-    "visual-practice", 
-    "play-with-friend", 
-    "vc-person"
+    "visual-practice",
+    "learning-path",
+    "play-with-friend",
+    "ai-calling",
+    "vc-person",
+    "clarity-cafe"
   ];
+
+  // Cleanup function to clear all timers
+  const clearAllTimers = () => {
+    autoCloseTimers.forEach(timer => clearTimeout(timer));
+    setAutoCloseTimers(new Map());
+  };
+
+  // Clear timers when collapsed state changes
+  React.useEffect(() => {
+    if (isCollapsed) {
+      clearAllTimers();
+      setHoverExpandedItems(new Set());
+      setHoveredItems(new Set());
+    }
+  }, [isCollapsed]);
+
+  // Cleanup on unmount
+  React.useEffect(() => {
+    return () => {
+      clearAllTimers();
+    };
+  }, []);
 
   const toggleExpanded = (itemId: string) => {
     // Clear any existing auto-close timer for this item
@@ -369,20 +375,31 @@ const ExpressifyTreeNavigation = () => {
         return newSet;
       });
       
-      // Set auto-close timer for hover-expanded items (6 seconds)
+      // Set auto-close timer for hover-expanded items only if still hover-expanded
       if (hoverExpandedItems.has(itemId) && !expandedItems.has(itemId)) {
+        // Clear any existing timer for this item first
+        const existingTimer = autoCloseTimers.get(itemId);
+        if (existingTimer) {
+          clearTimeout(existingTimer);
+        }
+        
         const timer = setTimeout(() => {
+          // Double-check the item is still in hover-expanded state
           setHoverExpandedItems(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(itemId);
-            return newSet;
+            if (prev.has(itemId)) {
+              const newSet = new Set(prev);
+              newSet.delete(itemId);
+              return newSet;
+            }
+            return prev;
           });
+          
           setAutoCloseTimers(prev => {
             const newMap = new Map(prev);
             newMap.delete(itemId);
             return newMap;
           });
-        }, 2500); // 1 second auto-close
+        }, 2500); // 2.5 second auto-close
         
         setAutoCloseTimers(prev => {
           const newMap = new Map(prev);
@@ -423,20 +440,31 @@ const ExpressifyTreeNavigation = () => {
         return newSet;
       });
       
-      // Set auto-close timer for hover-expanded items (6 seconds)
+      // Set auto-close timer for hover-expanded items only if still hover-expanded
       if (hoverExpandedItems.has(itemId) && !expandedItems.has(itemId)) {
+        // Clear any existing timer for this item first
+        const existingTimer = autoCloseTimers.get(itemId);
+        if (existingTimer) {
+          clearTimeout(existingTimer);
+        }
+        
         const timer = setTimeout(() => {
+          // Double-check the item is still in hover-expanded state
           setHoverExpandedItems(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(itemId);
-            return newSet;
+            if (prev.has(itemId)) {
+              const newSet = new Set(prev);
+              newSet.delete(itemId);
+              return newSet;
+            }
+            return prev;
           });
+          
           setAutoCloseTimers(prev => {
             const newMap = new Map(prev);
             newMap.delete(itemId);
             return newMap;
           });
-        }, 6000); // 6 seconds auto-close
+        }, 6000); // 3 second auto-close for container
         
         setAutoCloseTimers(prev => {
           const newMap = new Map(prev);
@@ -491,21 +519,28 @@ const ExpressifyTreeNavigation = () => {
             }
           }}
         >
-          {hasChildren && !isCollapsed && (
+          {!isCollapsed && (
             <ChevronDown 
-              className={`size-4 text-muted-foreground transition-transform ${
-                isExpanded ? "" : "-rotate-90"
+              className={`size-4 text-muted-foreground ${
+                hasChildren 
+                  ? `transition-transform cursor-pointer ${isExpanded ? "" : "-rotate-90"}` 
+                  : "-rotate-90 pointer-events-none"
               }`}
             />
           )}
-          {!hasChildren && !isCollapsed && <div className="w-4" />}
           {Icon && <Icon className="size-4 text-muted-foreground" />}
           {!isCollapsed && (
             item.href ? (
               <Link 
                 href={item.href} 
                 className="flex-1 text-sm hover:text-primary transition-colors"
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  // Don't stop propagation for parent items with children
+                  // This allows both navigation and dropdown toggle
+                  if (!hasChildren) {
+                    e.stopPropagation();
+                  }
+                }}
               >
                 {item.name}
               </Link>
@@ -568,11 +603,20 @@ const ExpressifyTreeNavigation = () => {
                 <div key={itemId} className="flex justify-center mb-2">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div 
-                        className="flex items-center justify-center w-8 h-8 rounded-sm hover:bg-accent cursor-pointer transition-colors group"
-                      >
-                        <Icon className="size-4 text-muted-foreground group-hover:text-foreground" />
-                      </div>
+                      {item.href ? (
+                        <Link 
+                          href={item.href}
+                          className="flex items-center justify-center w-8 h-8 rounded-sm hover:bg-accent cursor-pointer transition-colors group"
+                        >
+                          <Icon className="size-4 text-muted-foreground group-hover:text-foreground" />
+                        </Link>
+                      ) : (
+                        <div 
+                          className="flex items-center justify-center w-8 h-8 rounded-sm hover:bg-accent cursor-pointer transition-colors group"
+                        >
+                          <Icon className="size-4 text-muted-foreground group-hover:text-foreground" />
+                        </div>
+                      )}
                     </TooltipTrigger>
                     <TooltipContent side="right" className="ml-2">
                       <p>{item.name}</p>
@@ -591,20 +635,38 @@ const ExpressifyTreeNavigation = () => {
   );
 };
 
-export const ExpressifySidebar = memo(() => {
+interface ExpressifySidebarProps {
+  hideDarkModeToggle?: boolean;
+}
+
+export const ExpressifySidebar = memo(({ hideDarkModeToggle = false }: ExpressifySidebarProps) => {
   const { theme, setTheme } = useTheme();
   const { logout, user } = useAuth();
-  const { state } = useSidebar();
+  const { state, toggleSidebar } = useSidebar();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
 
   const isCollapsed = state === "collapsed";
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleLogout = async () => {
     try {
       await logout();
-      router.push('/start');
+      router.push('/landing');
     } catch (error) {
       console.error('Logout error:', error);
+    }
+  };
+
+  const handleThemeToggle = () => {
+    const newTheme = theme === "dark" ? "light" : "dark";
+    setTheme(newTheme);
+    // Force update localStorage to prevent revert
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('expressify-theme', newTheme);
     }
   };
 
@@ -615,8 +677,14 @@ export const ExpressifySidebar = memo(() => {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/me/home">
-                <div className="bg-primary text-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Mic className="h-5 w-5" />
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden bg-background">
+                  <Image 
+                    src="/logo.png" 
+                    alt="Expressify Logo" 
+                    width={32} 
+                    height={32}
+                    className="object-contain"
+                  />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">Expressify</span>
@@ -639,41 +707,85 @@ export const ExpressifySidebar = memo(() => {
 
       <SidebarFooter>
         <SidebarMenu>
+          {!hideDarkModeToggle && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={handleThemeToggle}
+              >
+                {mounted ? (theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />) : <div className="size-4" />}
+                <span>{mounted ? (theme === "dark" ? "Light Mode" : "Dark Mode") : "Theme"}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            >
-              {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-              <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+            <SidebarMenuButton onClick={toggleSidebar}>
+              <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+              </svg>
+              <span>Toggle Sidebar</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <Link href="/profile" className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
-                <UserAvatar 
-                  user={user} 
-                  size="md" 
-                  showTooltip={isCollapsed}
-                />
-                {!isCollapsed && user && (
-                  <div className="flex flex-col items-start min-w-0">
-                    <span className="text-sm font-medium truncate">
-                      {user.displayName || "User"}
-                    </span>
-                    <span className="text-xs text-muted-foreground truncate">
-                      {user.email}
-                    </span>
-                  </div>
-                )}
-              </Link>
-            </SidebarMenuButton>
+            {isCollapsed ? (
+              // Collapsed mode - use simpler structure
+              user ? (
+                <SidebarMenuButton asChild>
+                  <Link href="/profile" className="flex items-center justify-center p-0">
+                    <UserAvatar 
+                      user={user} 
+                      size="sm" 
+                      showTooltip={isCollapsed}
+                      className="!w-6 !h-6 !min-w-[24px] !min-h-[24px] !max-w-[24px] !max-h-[24px]"
+                    />
+                  </Link>
+                </SidebarMenuButton>
+              ) : (
+                <SidebarMenuButton asChild>
+                  <Link href="/landing" className="flex items-center justify-center">
+                    <User className="size-4" />
+                  </Link>
+                </SidebarMenuButton>
+              )
+            ) : (
+              // Expanded mode - full layout
+              user ? (
+                <SidebarMenuButton asChild>
+                  <Link href="/profile" className="flex items-center gap-2 py-2">
+                    <UserAvatar 
+                      user={user} 
+                      size="sm" 
+                      showTooltip={false}
+                      className="flex-shrink-0"
+                    />
+                    <div className="flex flex-col items-start min-w-0 flex-1">
+                      <span className="text-sm font-medium truncate max-w-full">
+                        {user.displayName || "User"}
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate max-w-full">
+                        {user.email}
+                      </span>
+                    </div>
+                  </Link>
+                </SidebarMenuButton>
+              ) : (
+                <SidebarMenuButton asChild>
+                  <Link href="/landing" className="flex items-center gap-2">
+                    <User className="size-4" />
+                    <span>Sign in</span>
+                  </Link>
+                </SidebarMenuButton>
+              )
+            )}
           </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={handleLogout}>
-              <LogOut className="size-4" />
-              <span>Sign Out</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {user && (
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={handleLogout}>
+                <LogOut className="size-4" />
+                <span>Sign Out</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
         </SidebarMenu>
       </SidebarFooter>
       <SidebarRail />

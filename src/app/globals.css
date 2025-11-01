@@ -123,3 +123,22 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes flow {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.animate-flow {
+  animation: flow linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-flow {
+    animation: none;
+  }
+}

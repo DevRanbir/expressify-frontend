@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import dynamic from 'next/dynamic';
+import loadingAnimation from "@/../public/loading.json";
+
+const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -11,17 +15,32 @@ interface ProtectedRouteProps {
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const [minLoadingTime, setMinLoadingTime] = useState(true);
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push('/start');
-    }
-  }, [user, loading, router]);
+    const timer = setTimeout(() => {
+      setMinLoadingTime(false);
+    }, 3000);
 
-  if (loading) {
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!loading && !user && !minLoadingTime) {
+      router.push('/landing');
+    }
+  }, [user, loading, minLoadingTime, router]);
+
+  if (loading || minLoadingTime) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-950 dark:to-purple-950">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-violet-600"></div>
+      <div className="min-h-screen w-full flex items-center justify-center bg-transparent">
+        <div className="w-full h-screen flex items-center justify-center">
+          <Lottie 
+            animationData={loadingAnimation} 
+            loop={true}
+            style={{ width: '100%', height: '100%', maxWidth: '100vw', maxHeight: '100vh' }}
+          />
+        </div>
       </div>
     );
   }

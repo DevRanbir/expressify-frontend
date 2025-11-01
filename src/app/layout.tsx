@@ -23,6 +23,11 @@ const lora = Lora({
 export const metadata: Metadata = {
   title: "Expressify",
   description: "AI Communication Training Platform",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({
@@ -36,7 +41,12 @@ export default function RootLayout({
         className={`${plusJakartaSans.variable} ${ibmPlexMono.variable} ${lora.variable} antialiased`}
         suppressHydrationWarning
       >
-        <ThemeProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={false}
+          storageKey="expressify-theme"
+        >
           <AuthProvider>
             {children}
           </AuthProvider>

@@ -5,29 +5,37 @@ import * as React from 'react';
 
 type ThemeProviderProps = {
   children: React.ReactNode;
-  attribute?: string;
+  attribute?: 'class' | 'data-theme';
   defaultTheme?: string;
   enableSystem?: boolean;
   disableTransitionOnChange?: boolean;
+  storageKey?: string;
 };
 
 export function ThemeProvider({ 
   children, 
   attribute = 'class',
-  defaultTheme = 'system',
-  enableSystem = true,
+  defaultTheme = 'dark',
+  enableSystem = false,
   disableTransitionOnChange = true,
   ...props 
 }: ThemeProviderProps) {
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <NextThemesProvider
       attribute={attribute}
       defaultTheme={defaultTheme}
       enableSystem={enableSystem}
       disableTransitionOnChange={disableTransitionOnChange}
+      storageKey="expressify-theme"
       {...props}
     >
-      {children}
+      {mounted ? children : <div style={{ visibility: 'hidden' }}>{children}</div>}
     </NextThemesProvider>
   );
 }
