@@ -16,7 +16,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { database } from "@/lib/firebase";
 import { ref, get } from "firebase/database";
@@ -82,7 +82,7 @@ interface CollaborativeGameData {
   };
 }
 
-export default function CollaborativeDetailsPage() {
+function CollaborativeDetailsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -391,5 +391,27 @@ export default function CollaborativeDetailsPage() {
         </SidebarInset>
       </SidebarProvider>
     </ProtectedRoute>
+  );
+}
+
+export default function CollaborativeDetailsPage() {
+  return (
+    <Suspense fallback={
+      <ProtectedRoute>
+        <SidebarProvider>
+          <ExpressifySidebar />
+          <SidebarInset>
+            <div className="flex h-full items-center justify-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Loading game details...</p>
+              </div>
+            </div>
+          </SidebarInset>
+        </SidebarProvider>
+      </ProtectedRoute>
+    }>
+      <CollaborativeDetailsContent />
+    </Suspense>
   );
 }
