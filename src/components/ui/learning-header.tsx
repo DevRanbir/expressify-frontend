@@ -13,10 +13,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { Bell, HomeIcon, BookOpen, FileText, VolumeX, Eye, Phone, Users2 } from 'lucide-react';
+import { Bell, HomeIcon, BookOpen, FileText, VolumeX, Eye, Phone, Users2, Video } from 'lucide-react';
 
 interface LearningHeaderProps {
-  trainingType: 'textual' | 'vocal' | 'visual' | 'ai-calling' | 'social';
+  trainingType: 'textual' | 'vocal' | 'visual' | 'ai-calling' | 'social' | 'vc-person';
   currentGame?: string;
   onRefresh?: () => void;
   isRefreshing?: boolean;
@@ -29,6 +29,7 @@ const getTrainingIcon = (type: string) => {
     case 'visual': return Eye;
     case 'ai-calling': return Phone;
     case 'social': return Users2;
+    case 'vc-person': return Video;
     default: return BookOpen;
   }
 };
@@ -40,6 +41,7 @@ const getTrainingLabel = (type: string) => {
     case 'visual': return 'Visual Practice';
     case 'ai-calling': return 'AI Calling';
     case 'social': return 'Social Training';
+    case 'vc-person': return 'VC a Person';
     default: return 'Learning';
   }
 };

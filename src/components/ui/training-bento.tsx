@@ -14,11 +14,11 @@ interface TrainingCardProps {
   icon: React.ComponentType<any>;
   difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
   estimatedTime: string;
-  trainingType: 'textual' | 'vocal' | 'visual' | 'ai-calling' | 'social';
+  trainingType: 'textual' | 'vocal' | 'visual' | 'ai-calling' | 'social' | 'vc-person';
 }
 
 interface TrainingBentoProps {
-  trainingType: 'textual' | 'vocal' | 'visual' | 'ai-calling' | 'social';
+  trainingType: 'textual' | 'vocal' | 'visual' | 'ai-calling' | 'social' | 'vc-person';
   cards: TrainingCardProps[];
 }
 

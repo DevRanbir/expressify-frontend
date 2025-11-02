@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { 
@@ -10,8 +10,19 @@ import {
   Headphones, Video, Gamepad2, Brain
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { database } from '@/lib/firebase';
+import { ref, onValue, off, set, get } from 'firebase/database';
 
-const quickLinks = [
+interface QuickLink {
+  icon: any;
+  label: string;
+  description: string;
+  route: string;
+  usageCount?: number;
+}
+
+const defaultQuickLinks: QuickLink[] = [
   {
     icon: FileText,
     label: 'Textual Training',
@@ -94,8 +105,51 @@ const quickLinks = [
 
 export const LearningActions = memo(() => {
   const router = useRouter();
+  const { user } = useAuth();
+  const [quickLinks, setQuickLinks] = useState<QuickLink[]>(defaultQuickLinks);
 
-  const handleAction = (route: string) => {
+  // Fetch usage data from Firebase and sort links
+  useEffect(() => {
+    if (!user) return;
+
+    const usageRef = ref(database, `users/${user.uid}/quickLinkUsage`);
+    
+    const unsubscribe = onValue(usageRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const usageData = snapshot.val();
+        
+        // Merge usage data with default links
+        const linksWithUsage = defaultQuickLinks.map(link => ({
+          ...link,
+          usageCount: usageData[link.route] || 0,
+        }));
+
+        // Sort by usage count (descending)
+        const sortedLinks = linksWithUsage.sort((a, b) => 
+          (b.usageCount || 0) - (a.usageCount || 0)
+        );
+
+        setQuickLinks(sortedLinks);
+      }
+    });
+
+    return () => off(usageRef);
+  }, [user]);
+
+  const handleAction = async (route: string) => {
+    // Track usage in Firebase
+    if (user) {
+      const usageRef = ref(database, `users/${user.uid}/quickLinkUsage/${route.replace(/\//g, '_')}`);
+      
+      try {
+        const snapshot = await get(usageRef);
+        const currentCount = snapshot.exists() ? snapshot.val() : 0;
+        await set(usageRef, currentCount + 1);
+      } catch (error) {
+        console.error('Error tracking usage:', error);
+      }
+    }
+
     router.push(route);
   };
 

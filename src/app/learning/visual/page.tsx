@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { FeatureGate } from '@/components/FeatureGate';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { ExpressifySidebar } from '@/components/ui/expressify-sidebar';
 import { LearningHeader } from '@/components/ui/learning-header';
@@ -57,9 +58,10 @@ export default function VisualTrainingPage() {
 
   return (
     <ProtectedRoute>
-      <SidebarProvider>
-        <ExpressifySidebar />
-        <SidebarInset>
+      <FeatureGate feature="visual-practice">
+        <SidebarProvider>
+          <ExpressifySidebar />
+          <SidebarInset>
           <LearningHeader
             trainingType="visual"
             onRefresh={handleRefresh}
@@ -119,6 +121,7 @@ export default function VisualTrainingPage() {
           </div>
         </SidebarInset>
       </SidebarProvider>
+      </FeatureGate>
     </ProtectedRoute>
   );
 }

@@ -11,6 +11,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList } from "@/co
 import Threads from "@/components/ui/threads-background";
 import { Users, BookOpen, Play, Target, Brain, Bell } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import CongustedPricing from "@/components/mvpblocks/congusted-pricing";
 
 export default function LandingPage() {
   const { user, loading } = useAuth();
@@ -250,6 +251,11 @@ export default function LandingPage() {
                     </CardContent>
                   </Card>
                 </div>
+              </section>
+
+              {/* Pricing Section */}
+              <section className="mt-12">
+                <CongustedPricing />
               </section>
 
               {/* Footer */}

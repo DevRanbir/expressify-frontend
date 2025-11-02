@@ -16,6 +16,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { database } from "@/lib/firebase";
 import { ref, onValue, off, get, remove } from "firebase/database";
+import { useRouter } from "next/navigation";
 import {
   ColumnDef,
   ColumnFiltersState,
@@ -108,6 +109,7 @@ type TrainingSession = {
   type: "Textual" | "Vocal" | "Visual";
   status: "Excellent" | "Very Good" | "Good" | "Needs Work";
   score: number;
+  gameId: string; // Store the game ID for retry functionality
 };
 
 type GameData = {
@@ -150,7 +152,20 @@ const typeFilterFn: FilterFn<TrainingSession> = (
   return filterValue.includes(type);
 };
 
-const RowActions = ({ row }: { row: Row<TrainingSession> }) => {
+const RowActions = ({ row, router }: { row: Row<TrainingSession>; router: ReturnType<typeof import('next/navigation').useRouter> }) => {
+  const handleViewFeedback = () => {
+    router.push(`/me/history/feedback?sessionId=${row.original.id}&gameName=${encodeURIComponent(row.original.name)}`);
+  };
+
+  const handleRetrySession = () => {
+    const gameId = row.original.gameId;
+    if (gameId) {
+      router.push(`/learning/textual/start?game=${gameId}`);
+    } else {
+      console.error(`No game ID found for session: ${row.original.name}`);
+    }
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -163,9 +178,8 @@ const RowActions = ({ row }: { row: Row<TrainingSession> }) => {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem>View Details</DropdownMenuItem>
-        <DropdownMenuItem>View Feedback</DropdownMenuItem>
-        <DropdownMenuItem>Retry Session</DropdownMenuItem>
+        <DropdownMenuItem onClick={handleViewFeedback}>View Feedback</DropdownMenuItem>
+        <DropdownMenuItem onClick={handleRetrySession}>Retry Session</DropdownMenuItem>
         <DropdownMenuItem className="text-destructive">
           Delete Session
         </DropdownMenuItem>
@@ -176,8 +190,10 @@ const RowActions = ({ row }: { row: Row<TrainingSession> }) => {
 
 export default function HistoryPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [userPlan, setUserPlan] = useState<string>('freemium');
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [pagination, setPagination] = useState<PaginationState>({
@@ -188,7 +204,7 @@ export default function HistoryPage() {
   const [sorting, setSorting] = useState<SortingState>([
     {
       id: "date",
-      desc: true,
+      desc: true, // Latest history on top by default
     },
   ]);
 
@@ -238,6 +254,7 @@ export default function HistoryPage() {
       type: "Textual",
       status: getStatus(displayScore),
       score: displayScore,
+      gameId: gameData.gameId || gameId, // Store the game ID
     };
   };
 
@@ -349,6 +366,23 @@ export default function HistoryPage() {
     };
   }, [user]);
 
+  // Fetch user's plan from Firebase
+  useEffect(() => {
+    if (!user) return;
+    
+    const userRef = ref(database, `users/${user.uid}/subscription`);
+    const unsubscribe = onValue(userRef, (snapshot) => {
+      const subscription = snapshot.val();
+      if (subscription && subscription.plan) {
+        setUserPlan(subscription.plan);
+      } else {
+        setUserPlan('freemium');
+      }
+    });
+
+    return () => off(userRef);
+  }, [user]);
+
   const columns: ColumnDef<TrainingSession>[] = [
     {
       id: "select",
@@ -456,7 +490,7 @@ export default function HistoryPage() {
     {
       id: "actions",
       header: () => <span className="sr-only">Actions</span>,
-      cell: ({ row }) => <RowActions row={row} />,
+      cell: ({ row }) => <RowActions row={row} router={router} />,
       size: 60,
       enableHiding: false,
     },
@@ -847,7 +881,8 @@ export default function HistoryPage() {
                     </Table>
                   </div>
 
-                  {/* Pagination */}
+                  {/* Pagination - Only show for paid users */}
+                  {userPlan !== 'freemium' && (
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <p className="text-nowrap text-sm">Rows per page</p>
@@ -930,6 +965,7 @@ export default function HistoryPage() {
                       </PaginationContent>
                     </Pagination>
                   </div>
+                  )}
               </div>
             </div>
           </div>

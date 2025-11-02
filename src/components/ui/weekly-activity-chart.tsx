@@ -1,22 +1,93 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { BarChart3, Calendar } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { database } from '@/lib/firebase';
+import { ref, onValue, off } from 'firebase/database';
 
-const weeklyActivityData = [
-  { day: 'Mon', activities: 12, color: 'bg-blue-500' },
-  { day: 'Tue', activities: 8, color: 'bg-green-500' },
-  { day: 'Wed', activities: 15, color: 'bg-purple-500' },
-  { day: 'Thu', activities: 6, color: 'bg-yellow-500' },
-  { day: 'Fri', activities: 18, color: 'bg-red-500' },
-  { day: 'Sat', activities: 22, color: 'bg-cyan-500' },
-  { day: 'Sun', activities: 10, color: 'bg-orange-500' },
-];
+const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-yellow-500', 'bg-red-500', 'bg-cyan-500', 'bg-orange-500'];
 
 export const WeeklyActivityChart = memo(() => {
-  const maxActivities = Math.max(...weeklyActivityData.map(item => item.activities));
+  const { user } = useAuth();
+  const [weeklyActivityData, setWeeklyActivityData] = useState([
+    { day: 'Mon', activities: 0, color: 'bg-blue-500' },
+    { day: 'Tue', activities: 0, color: 'bg-green-500' },
+    { day: 'Wed', activities: 0, color: 'bg-purple-500' },
+    { day: 'Thu', activities: 0, color: 'bg-yellow-500' },
+    { day: 'Fri', activities: 0, color: 'bg-red-500' },
+    { day: 'Sat', activities: 0, color: 'bg-cyan-500' },
+    { day: 'Sun', activities: 0, color: 'bg-orange-500' },
+  ]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
+
+    const gameTypes = ['chat-simulator', 'crossword-puzzle', 'debate-master', 'grammar-goblin', 'vocabulary-quest', 'word-bucket'];
+    
+    // Initialize activity count by day (0 = Sunday, 1 = Monday, etc.)
+    const activityByDay = [0, 0, 0, 0, 0, 0, 0];
+    let loadedCount = 0;
+    const unsubscribers: Array<() => void> = [];
+
+    gameTypes.forEach((gameType) => {
+      const gameRef = ref(database, `games/${gameType}/${user.uid}`);
+      
+      const unsubscribe = onValue(gameRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const gamesData = snapshot.val();
+          const games = Object.values(gamesData);
+          
+          games.forEach((game: any) => {
+            if (game.timestamp) {
+              const gameDate = new Date(game.timestamp);
+              const today = new Date();
+              const daysDiff = Math.floor((today.getTime() - gameDate.getTime()) / (1000 * 60 * 60 * 24));
+              
+              // Only count games from last 7 days
+              if (daysDiff < 7) {
+                const dayOfWeek = gameDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+                activityByDay[dayOfWeek]++;
+              }
+            }
+          });
+        }
+
+        loadedCount++;
+        
+        if (loadedCount === gameTypes.length) {
+          // Map to day names (starting from Monday)
+          const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+          const reorderedData = [
+            { day: 'Mon', activities: activityByDay[1], color: colors[0] },
+            { day: 'Tue', activities: activityByDay[2], color: colors[1] },
+            { day: 'Wed', activities: activityByDay[3], color: colors[2] },
+            { day: 'Thu', activities: activityByDay[4], color: colors[3] },
+            { day: 'Fri', activities: activityByDay[5], color: colors[4] },
+            { day: 'Sat', activities: activityByDay[6], color: colors[5] },
+            { day: 'Sun', activities: activityByDay[0], color: colors[6] },
+          ];
+          
+          setWeeklyActivityData(reorderedData);
+          setIsLoading(false);
+        }
+      });
+
+      unsubscribers.push(() => off(gameRef));
+    });
+
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, [user]);
+
+  const maxActivities = Math.max(...weeklyActivityData.map(item => item.activities), 1);
   const totalActivities = weeklyActivityData.reduce((sum, item) => sum + item.activities, 0);
   const averageActivities = Math.round(totalActivities / 7);
 

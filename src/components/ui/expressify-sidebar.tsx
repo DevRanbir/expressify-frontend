@@ -65,9 +65,14 @@ import {
   LogOut,
   HomeIcon,
   ScreenShareIcon,
+  CreditCard,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import HomePage from "@/app/me/home/page";
+import { ref, get } from "firebase/database";
+import { database } from "@/lib/firebase";
+import { User as FirebaseUser } from "firebase/auth";
+import { isFeatureAccessible } from "@/lib/accessControl";
 
 interface NavigationItem {
   name: string;
@@ -87,6 +92,11 @@ const navigationItems: Record<string, NavigationItem> = {
     name: "Learning Path",
     href: "/me/learning-path",
     icon: Target,
+  },
+  pricing: {
+    name: "Pricing",
+    href: "/pricing",
+    icon: CreditCard,
   },
   "clarity-cafe": {
     name: "Clarity Cafe",
@@ -255,6 +265,77 @@ const navigationItems: Record<string, NavigationItem> = {
   },
 };
 
+// Pricing Menu Button Component with Current Plan Display
+const PricingMenuButton = ({ isCollapsed, user }: { isCollapsed: boolean; user: FirebaseUser | null }) => {
+  const [currentPlan, setCurrentPlan] = useState<string>('freemium');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCurrentPlan = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const userRef = ref(database, `users/${user.uid}/subscription`);
+        const snapshot = await get(userRef);
+
+        if (snapshot.exists()) {
+          setCurrentPlan(snapshot.val().plan);
+        } else {
+          setCurrentPlan('freemium');
+        }
+      } catch (error) {
+        console.error('Error fetching current plan:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCurrentPlan();
+  }, [user]);
+
+  const getPlanDisplay = (plan: string): string => {
+    switch (plan) {
+      case 'freemium':
+        return 'Free';
+      case 'student':
+        return 'Student';
+      case 'premium':
+        return 'Premium';
+      default:
+        return 'Free';
+    }
+  };
+
+  if (isCollapsed) {
+    return (
+      <SidebarMenuButton asChild>
+        <Link href="/pricing" className="flex items-center justify-center">
+          <CreditCard className="size-4" />
+        </Link>
+      </SidebarMenuButton>
+    );
+  }
+
+  return (
+    <SidebarMenuButton asChild>
+      <Link href="/pricing" className="flex items-center gap-2">
+        <CreditCard className="size-4" />
+        <div className="flex flex-col items-start flex-1">
+          <span>Pricing</span>
+          {user && !loading && (
+            <span className="text-xs text-muted-foreground">
+              {getPlanDisplay(currentPlan)} Plan
+            </span>
+          )}
+        </div>
+      </Link>
+    </SidebarMenuButton>
+  );
+};
+
 const ExpressifyTreeNavigation = () => {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(
     new Set() // Keep all trees closed by default
@@ -264,11 +345,30 @@ const ExpressifyTreeNavigation = () => {
   const [hoverExpandedItems, setHoverExpandedItems] = useState<Set<string>>(new Set());
   const [autoCloseTimers, setAutoCloseTimers] = useState<Map<string, NodeJS.Timeout>>(new Map());
   const [searchQuery, setSearchQuery] = useState("");
+  const [userPlan, setUserPlan] = useState<string>('freemium');
   const { state } = useSidebar();
+  const { user } = useAuth();
   const isCollapsed = state === "collapsed";
 
-  // Define the main navigation items (direct children)
-  const mainNavItems = [
+  // Fetch user plan
+  useEffect(() => {
+    const fetchUserPlan = async () => {
+      if (!user) return;
+
+      try {
+        const userRef = ref(database, `users/${user.uid}/subscription`);
+        const snapshot = await get(userRef);
+        setUserPlan(snapshot.exists() ? snapshot.val().plan : 'freemium');
+      } catch (error) {
+        console.error('Error fetching user plan:', error);
+      }
+    };
+
+    fetchUserPlan();
+  }, [user]);
+
+  // Define the main navigation items (direct children) - filtered by plan
+  const allMainNavItems = [
     "home",
     "history",
     "textual-practice", 
@@ -280,6 +380,11 @@ const ExpressifyTreeNavigation = () => {
     "vc-person",
     "clarity-cafe"
   ];
+
+  // Filter navigation items based on user's plan
+  const mainNavItems = allMainNavItems.filter(itemId => 
+    isFeatureAccessible(itemId, userPlan)
+  );
 
   // Cleanup function to clear all timers
   const clearAllTimers = () => {
@@ -707,6 +812,11 @@ export const ExpressifySidebar = memo(({ hideDarkModeToggle = false }: Expressif
 
       <SidebarFooter>
         <SidebarMenu>
+          {/* Pricing Link with Current Plan */}
+          <SidebarMenuItem>
+            <PricingMenuButton isCollapsed={isCollapsed} user={user} />
+          </SidebarMenuItem>
+          
           {!hideDarkModeToggle && (
             <SidebarMenuItem>
               <SidebarMenuButton
@@ -731,7 +841,7 @@ export const ExpressifySidebar = memo(({ hideDarkModeToggle = false }: Expressif
               // Collapsed mode - use simpler structure
               user ? (
                 <SidebarMenuButton asChild>
-                  <Link href="/profile" className="flex items-center justify-center p-0">
+                  <Link href="/me/account" className="flex items-center justify-center p-0">
                     <UserAvatar 
                       user={user} 
                       size="sm" 
@@ -751,7 +861,7 @@ export const ExpressifySidebar = memo(({ hideDarkModeToggle = false }: Expressif
               // Expanded mode - full layout
               user ? (
                 <SidebarMenuButton asChild>
-                  <Link href="/profile" className="flex items-center gap-2 py-2">
+                  <Link href="/me/account" className="flex items-center gap-2 py-2">
                     <UserAvatar 
                       user={user} 
                       size="sm" 

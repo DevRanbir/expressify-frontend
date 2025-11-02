@@ -12,6 +12,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
 import { 
   ArrowLeft, 
   Users, 
@@ -1004,28 +1013,39 @@ export default function GamePage() {
           <main className="flex-1 overflow-auto">
             <div className="min-h-screen bg-background">
               {/* Header */}
-              <div className="sticky top-0 z-10 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <div className="flex flex-1 flex-col gap-2 p-2 sm:gap-4 sm:p-4">
-                  <div className="mx-auto w-full max-w-6xl">
-                    <div className="flex items-center justify-between px-2 sm:px-0">
-                      <div className="flex items-center gap-3">
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => router.push('/training/social/collaborate')}
-                          className="h-8 w-8 p-0"
-                        >
-                          <ArrowLeft className="h-4 w-4" />
-                        </Button>
-                        <div>
-                          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">🧩 Sentence Builder</h1>
-                          <p className="text-xs text-muted-foreground sm:text-sm">
-                            Code: <span className="font-mono font-medium">{gameCode}</span>
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
+              <header className="bg-background/95 sticky top-0 z-50 flex h-16 w-full shrink-0 items-center gap-2 border-b backdrop-blur transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+                <div className="flex items-center gap-2 px-4">
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={() => router.push('/training/social/collaborate')}
+                    className="h-8 w-8"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <Separator orientation="vertical" className="mr-2 h-4" />
+                  <Breadcrumb>
+                    <BreadcrumbList>
+                      <BreadcrumbItem className="hidden md:block">
+                        <BreadcrumbLink href="/training/social/collaborate">Collaborate</BreadcrumbLink>
+                      </BreadcrumbItem>
+                      <BreadcrumbSeparator className="hidden md:block" />
+                      <BreadcrumbItem>
+                        <BreadcrumbPage>🧩 Sentence Builder</BreadcrumbPage>
+                      </BreadcrumbItem>
+                    </BreadcrumbList>
+                  </Breadcrumb>
+                </div>
+
+                <div className="ml-auto flex items-center gap-2 px-4">
+                  {/* Game Code Badge */}
+                  <div className="hidden items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-1.5 sm:flex">
+                    <span className="text-xs text-muted-foreground">Code:</span>
+                    <code className="text-sm font-mono font-medium">{gameCode}</code>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-2">
                         {gamePhase === 'waiting' && (
                           <>
                             {!isUserHost && (
@@ -1093,11 +1113,9 @@ export default function GamePage() {
                             Leave
                           </Button>
                         )}
-                      </div>
-                    </div>
                   </div>
                 </div>
-              </div>
+              </header>
 
               {/* Main Content */}
               <div className="flex flex-1 flex-col gap-2 p-2 pt-0 sm:gap-4 sm:p-4">
@@ -1165,9 +1183,53 @@ export default function GamePage() {
                         </div>
                       )}
 
-                      {/* Chat Sidebar for Waiting/Finished phases */}
+                      {/* Sidebar for Waiting/Finished phases */}
                       {(gamePhase === 'waiting' || gamePhase === 'finished') && (
                         <div className="space-y-4 sm:space-y-6">
+                          {/* Players Section */}
+                          <Card className="border-border/50">
+                            <CardHeader>
+                              <CardTitle className="text-lg flex items-center gap-2">
+                                <Users className="h-4 w-4" />
+                                Players ({gameData?.players.length || 0}/{gameData?.maxPlayers || 4})
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="space-y-2">
+                                {gameData?.players.map((player: any) => (
+                                  <div 
+                                    key={player.id} 
+                                    className="flex items-center gap-3 p-2.5 rounded-lg border border-border/50 bg-muted/10"
+                                  >
+                                    <UserAvatar user={player} size="sm" />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-medium text-sm truncate">{player.name}</span>
+                                        {player.isHost && (
+                                          <Crown className="h-3 w-3 text-muted-foreground" />
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        <div 
+                                          className="w-2 h-2 rounded-full border border-border"
+                                          style={{ backgroundColor: getPlayerColor(player.id) }}
+                                        ></div>
+                                        <span>Score: {playerScores[player.id] !== undefined ? playerScores[player.id] : 100}</span>
+                                      </div>
+                                    </div>
+                                    <Badge 
+                                      variant={player.isReady ? 'default' : 'secondary'}
+                                      className="text-xs"
+                                    >
+                                      {gamePhase === 'waiting' ? (player.isReady ? 'Ready' : 'Not Ready') : 'Playing'}
+                                    </Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* Team Chat */}
                           <Card className="border-border/50">
                             <CardHeader>
                               <CardTitle className="text-lg flex items-center gap-2">
@@ -1177,7 +1239,7 @@ export default function GamePage() {
                             </CardHeader>
                             <CardContent>
                               <div className="space-y-3">
-                                <div className="h-[400px] overflow-y-auto border border-border/50 rounded-lg p-3 bg-muted/10">
+                                <div className="h-[200px] overflow-y-auto border border-border/50 rounded-lg p-3 bg-muted/10">
                                   {chatMessages.filter(msg => msg.timestamp >= joinedAt).length === 0 ? (
                                     <p className="text-xs text-muted-foreground">No messages yet... Start chatting!</p>
                                   ) : (
@@ -1391,8 +1453,55 @@ export default function GamePage() {
                             </div>
                           </div>
 
-                          {/* Sidebar - Chat for Playing phase */}
+                          {/* Sidebar - Players and Chat for Playing phase */}
                           <div className="space-y-4 sm:space-y-6 h-full flex flex-col">
+                            {/* Players Section */}
+                            <Card className="border-border/50">
+                              <CardHeader>
+                                <CardTitle className="text-lg flex items-center gap-2">
+                                  <Users className="h-4 w-4" />
+                                  Players ({gameData?.players.length || 0}/{gameData?.maxPlayers || 4})
+                                </CardTitle>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="space-y-2">
+                                  {gameData?.players.map((player: any) => (
+                                    <div 
+                                      key={player.id} 
+                                      className="flex items-center gap-3 p-2.5 rounded-lg border border-border/50 bg-muted/10"
+                                    >
+                                      <UserAvatar user={player} size="sm" />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-medium text-sm truncate">{player.name}</span>
+                                          {player.isHost && (
+                                            <Crown className="h-3 w-3 text-muted-foreground" />
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                          <div 
+                                            className="w-2 h-2 rounded-full border border-border"
+                                            style={{ backgroundColor: getPlayerColor(player.id) }}
+                                          ></div>
+                                          <span>Score: {playerScores[player.id] !== undefined ? playerScores[player.id] : 100}</span>
+                                          {Object.keys(cursors).includes(player.id) && (
+                                            <span>• Active</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <Badge 
+                                        variant={player.isReady ? 'default' : 'secondary'}
+                                        className="text-xs"
+                                      >
+                                        Playing
+                                      </Badge>
+                                    </div>
+                                  ))}
+                                </div>
+                              </CardContent>
+                            </Card>
+
+                            {/* Team Chat */}
                             <Card className="border-border/50 flex-1 flex flex-col">
                               <CardHeader>
                                 <CardTitle className="text-lg flex items-center gap-2">
@@ -1453,56 +1562,10 @@ export default function GamePage() {
                       )}
                     </div>
 
-                    {/* Bottom Section - Players and Game Info Side by Side */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-                      {/* Players */}
-                      <Card className="border-border/50">
-                        <CardHeader>
-                          <CardTitle className="text-lg flex items-center gap-2">
-                            <Users className="h-4 w-4" />
-                            Players ({gameData?.players.length || 0}/{gameData?.maxPlayers || 4})
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-2">
-                            {gameData?.players.map((player: any) => (
-                              <div 
-                                key={player.id} 
-                                className="flex items-center gap-3 p-2.5 rounded-lg border border-border/50 bg-muted/10"
-                              >
-                                <UserAvatar user={player} size="sm" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-medium text-sm truncate">{player.name}</span>
-                                    {player.isHost && (
-                                      <Crown className="h-3 w-3 text-muted-foreground" />
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <div 
-                                      className="w-2 h-2 rounded-full border border-border"
-                                      style={{ backgroundColor: getPlayerColor(player.id) }}
-                                    ></div>
-                                    <span>Score: {playerScores[player.id] !== undefined ? playerScores[player.id] : 100}</span>
-                                    {gamePhase === 'playing' && Object.keys(cursors).includes(player.id) && (
-                                      <span>• Active</span>
-                                    )}
-                                  </div>
-                                </div>
-                                <Badge 
-                                  variant={player.isReady ? 'default' : 'secondary'}
-                                  className="text-xs"
-                                >
-                                  {gamePhase === 'waiting' ? (player.isReady ? 'Ready' : 'Not Ready') : 'Playing'}
-                                </Badge>
-                              </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-
+                    {/* Bottom Section - Game Info */}
+                    <div className="grid grid-cols-1 gap-4 sm:gap-6">
                       {/* Game Info */}
-                      <Card className="border-border/50">
+                      <Card className="border-border/50 max-w-2xl mx-auto w-full">
                         <CardHeader>
                           <CardTitle className="text-lg">Game Info</CardTitle>
                         </CardHeader>

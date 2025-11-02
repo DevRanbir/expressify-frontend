@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { FeatureGate } from '@/components/FeatureGate';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { ExpressifySidebar } from '@/components/ui/expressify-sidebar';
 import { LearningHeader } from '@/components/ui/learning-header';
@@ -51,10 +52,11 @@ export default function AICallingPage() {
 
   return (
     <ProtectedRoute>
-      <SidebarProvider>
-        <ExpressifySidebar />
-        <SidebarInset>
-          <LearningHeader trainingType="ai-calling" />
+      <FeatureGate feature="ai-calling">
+        <SidebarProvider>
+          <ExpressifySidebar />
+          <SidebarInset>
+            <LearningHeader trainingType="ai-calling" />
           
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
             <div className="min-h-[100vh] flex-1 rounded-xl p-4 md:p-6">
@@ -188,6 +190,7 @@ export default function AICallingPage() {
           </div>
         </SidebarInset>
       </SidebarProvider>
+      </FeatureGate>
     </ProtectedRoute>
   );
 }

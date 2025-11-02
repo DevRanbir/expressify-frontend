@@ -1,6 +1,7 @@
 "use client";
 
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { FeatureGate } from "@/components/FeatureGate";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { ExpressifySidebar } from "@/components/ui/expressify-sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,9 +90,10 @@ export default function LearningPathPage() {
 
   return (
     <ProtectedRoute>
-      <SidebarProvider>
-        <div className="flex h-screen w-full overflow-hidden">
-          <ExpressifySidebar />
+      <FeatureGate feature="learning-path">
+        <SidebarProvider>
+          <div className="flex h-screen w-full overflow-hidden">
+            <ExpressifySidebar />
           <SidebarInset className="flex-1 overflow-auto">
             <div className="min-h-screen bg-background">
               {/* Header */}
@@ -333,6 +335,7 @@ export default function LearningPathPage() {
           </SidebarInset>
         </div>
       </SidebarProvider>
+      </FeatureGate>
     </ProtectedRoute>
   );
 }
