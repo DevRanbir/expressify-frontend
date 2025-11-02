@@ -13,7 +13,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { useEffect, useState, useRef, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { database } from "@/lib/firebase";
 import { ref, get } from "firebase/database";
@@ -36,7 +36,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { groq } from "@/lib/groqService";
-import { useRouter } from "next/navigation";
 
 // Simple askGroqQuestion function
 async function askGroqQuestion(prompt: string): Promise<string> {
