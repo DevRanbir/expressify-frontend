@@ -38,6 +38,7 @@ import { useGameSessions, useGameSession } from '@/hooks/useCollaboration';
 import { ref, set, get, onValue, remove } from 'firebase/database';
 import { database } from '@/lib/firebase';
 import { generateWikipediaSentence, WikipediaSentence, validateSentence } from '@/lib/wikipediaService';
+import Lottie from 'lottie-react';
 
 // Types
 interface WordItem {
@@ -124,12 +125,35 @@ export default function GamePage() {
   const [playerScores, setPlayerScores] = useState<Record<string, number>>({});
   const [playerMadeMove, setPlayerMadeMove] = useState(false); // Track if current user made a move this sentence
   const [sentenceStartTime, setSentenceStartTime] = useState<number>(Date.now());
+  const [lottieAnimations, setLottieAnimations] = useState<any[]>([]);
+  const [activeEmojiReaction, setActiveEmojiReaction] = useState<number | null>(null);
+  const [emojiCooldown, setEmojiCooldown] = useState(false);
 
   // Refs for game area and timer
   const gameAreaRef = useRef<HTMLDivElement>(null);
   const draggedWordRef = useRef<string | null>(null);
   const wordsRef = useRef<WordItem[]>([]);
   const gameDataRef = useRef(gameData);
+  const handleGameEndRef = useRef<() => Promise<void>>(async () => {});
+
+  // Load Lottie animations
+  useEffect(() => {
+    const loadAnimations = async () => {
+      try {
+        const animations = await Promise.all([
+          fetch('/star reaction.json').then(res => res.json()),
+          fetch('/Crying emoji animation.json').then(res => res.json()),
+          fetch('/Sad Emoji.json').then(res => res.json()),
+          fetch('/Crying emoji.json').then(res => res.json()),
+          fetch('/Angry Emoji Face.json').then(res => res.json()),
+        ]);
+        setLottieAnimations(animations);
+      } catch (error) {
+        console.error('Failed to load Lottie animations:', error);
+      }
+    };
+    loadAnimations();
+  }, []);
 
   // Update refs when state changes
   useEffect(() => {
@@ -271,7 +295,7 @@ export default function GamePage() {
     }
   }, [gamePhase, gameData?.id, user]);
 
-  // Check for game over conditions
+  // Check for game over conditions and navigate to results when finished
   useEffect(() => {
     if (!gameData?.id || !user?.uid) return;
 
@@ -279,7 +303,9 @@ export default function GamePage() {
     
     if (currentGame) {
       if (currentGame.status === 'finished') {
-        // Don't redirect here - let the timer handler redirect to results
+        // Game is finished - navigate to results page
+        toast.success('Game finished! Viewing results...');
+        router.push(`/training/social/collaborate/${gameCode}/results`);
         return;
       }
       
@@ -340,7 +366,7 @@ export default function GamePage() {
               const isHost = currentGameData.players.find((p: any) => p.id === user?.uid)?.isHost;
               if (isHost) {
                 console.log('Timer reached 0, host ending game');
-                handleGameEnd();
+                handleGameEndRef.current?.();
               }
             }
           }
@@ -365,8 +391,8 @@ export default function GamePage() {
     };
   }, [gamePhase, gameData?.id, user?.uid]);
 
-  // Handle game end - update status and navigate to results
-  const handleGameEnd = async () => {
+  // Handle game end - update status, save game data, and navigate to results
+  const handleGameEnd = useCallback(async () => {
     if (!gameData?.id) return;
     
     const gameRef = ref(database, `gameSessions/${gameData.id}`);
@@ -374,6 +400,9 @@ export default function GamePage() {
     try {
       // Update game status to finished
       await set(ref(database, `gameSessions/${gameData.id}/status`), 'finished');
+      
+      // Save comprehensive game data for each player's history
+      await saveGameDataToHistory();
       
       toast.success('Game finished! Viewing results...');
       
@@ -384,6 +413,148 @@ export default function GamePage() {
     } catch (error) {
       console.error('Error ending game:', error);
       toast.error('Failed to end game');
+    }
+  }, [gameData?.id, router, gameCode]); // useCallback dependencies
+
+  // Update the ref whenever handleGameEnd changes
+  useEffect(() => {
+    handleGameEndRef.current = handleGameEnd;
+  }, [handleGameEnd]);
+
+  // Save comprehensive game data to Firebase for user history
+  const saveGameDataToHistory = async () => {
+    if (!gameData?.id || !gameData?.players) return;
+
+    try {
+      const gameEndTime = Date.now();
+      const gameStartTime = sentenceStartTime || gameEndTime - (10 * 60 * 1000); // Default to 10 min if start time missing
+      const gameDuration = Math.round((gameEndTime - gameStartTime) / 1000); // Duration in seconds
+
+      // Get all chat messages for the game
+      const chatRef = ref(database, `gameChats/${gameData.id}`);
+      const chatSnapshot = await get(chatRef);
+      const allChatMessages = chatSnapshot.val() ? Object.values(chatSnapshot.val()) : [];
+
+      // Calculate total sentences completed
+      const systemMessages = allChatMessages.filter((msg: any) => 
+        msg.isSystem && msg.message.includes('Sentence completed')
+      );
+      const sentencesCompleted = systemMessages.length;
+
+      // Get current game state for final statistics
+      const gameStateRef = ref(database, `gameSessions/${gameData.id}/gameState`);
+      const gameStateSnapshot = await get(gameStateRef);
+      const finalGameState = gameStateSnapshot.val();
+
+      // Calculate words placed by each player (from chat messages)
+      const playerWordCounts: Record<string, number> = {};
+      const playerCorrectWords: Record<string, number> = {};
+      
+      gameData.players.forEach((player: any) => {
+        playerWordCounts[player.id] = 0;
+        playerCorrectWords[player.id] = 0;
+      });
+
+      // Count emoji reactions used
+      const emojiMessages = allChatMessages.filter((msg: any) => msg.isEmojiSticker);
+      const totalEmojisUsed = emojiMessages.length;
+
+      // For each player, save their individual game data
+      for (const player of gameData.players) {
+        const playerScore = playerScores[player.id] || 100;
+        
+        // Create comprehensive game data object
+        const gameHistoryData = {
+          id: `${gameData.id}-${player.id}`, // Unique ID combining game and player
+          name: `Sentence Builder Collaboration`,
+          module: `${gameData.difficulty} Collaborative Game`,
+          date: new Date(gameEndTime).toLocaleDateString(),
+          duration: `${Math.floor(gameDuration / 60)}m ${gameDuration % 60}s`,
+          type: "Collaborative" as const,
+          status: playerScore >= 90 ? "Excellent" : 
+                  playerScore >= 75 ? "Very Good" : 
+                  playerScore >= 60 ? "Good" : "Needs Work",
+          score: playerScore,
+          gameId: gameData.id,
+          
+          // Detailed game statistics
+          gameData: {
+            gameId: gameData.id,
+            gameCode: gameCode,
+            score: playerScore,
+            timeElapsed: gameDuration,
+            difficulty: gameData.difficulty,
+            gameType: 'sentence-builder-collaborative',
+            
+            // Game-specific stats
+            sentencesCompleted: sentencesCompleted,
+            totalPlayers: gameData.players.length,
+            playerPosition: gameData.players.findIndex((p: any) => p.id === player.id) + 1,
+            
+            // Player interaction stats
+            chatMessagesCount: allChatMessages.filter((msg: any) => 
+              msg.senderId === player.id && !msg.isSystem && !msg.isEmojiSticker
+            ).length,
+            emojisUsed: emojiMessages.filter((msg: any) => msg.senderId === player.id).length,
+            totalChatMessages: allChatMessages.filter((msg: any) => !msg.isSystem).length,
+            totalEmojisUsed: totalEmojisUsed,
+            
+            // Game timing
+            gameStartTime: gameStartTime,
+            gameEndTime: gameEndTime,
+            timeLimit: (gameData.timeLimit || 10) * 60, // Convert minutes to seconds
+            
+            // Game outcome
+            status: 'completed',
+            timestamp: gameEndTime,
+            
+            // Additional context
+            isHost: player.isHost,
+            finalProgress: gameProgress,
+            currentSentenceTheme: currentSentence?.theme || 'Unknown',
+            currentSentenceDifficulty: currentSentence?.difficulty || gameData.difficulty,
+            
+            // All players data for context
+            allPlayers: gameData.players.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              isHost: p.isHost,
+              finalScore: playerScores[p.id] || 100
+            })),
+            
+            // Game events timeline (simplified)
+            events: [
+              {
+                type: 'game_started',
+                timestamp: gameStartTime,
+                description: 'Game started'
+              },
+              ...systemMessages.map((msg: any, index: number) => ({
+                type: 'sentence_completed',
+                timestamp: msg.timestamp,
+                description: `Sentence ${index + 1} completed`
+              })),
+              {
+                type: 'game_ended',
+                timestamp: gameEndTime,
+                description: 'Game ended'
+              }
+            ]
+          }
+        };
+
+        // Save to user's history in Firebase
+        const userHistoryRef = ref(database, `users/${player.id}/history/collaborative/${gameData.id}`);
+        await set(userHistoryRef, gameHistoryData);
+
+        // Also save to games > collaborate > sentence-builder > gameid > data
+        const gameDataRef = ref(database, `games/collaborate/sentence-builder/${gameData.id}/data/${player.id}`);
+        await set(gameDataRef, gameHistoryData);
+      }
+
+      console.log('Game data saved successfully to player histories');
+    } catch (error) {
+      console.error('Error saving game data to history:', error);
     }
   };
 
@@ -426,6 +597,7 @@ export default function GamePage() {
         // Update cursor position in Firebase with normalized coordinates and dragged word
         if (gameData?.id && rect.width > 0 && rect.height > 0) {
           const cursorRef = ref(database, `gameSessions/${gameData.id}/cursors/${user.uid}`);
+          
           const cursorData: any = {
             playerId: user.uid,
             playerName: user.displayName || 'Anonymous',
@@ -438,6 +610,12 @@ export default function GamePage() {
           // Only add draggedWordText if there's actually a word being dragged
           if (draggedWordText) {
             cursorData.draggedWordText = draggedWordText;
+          }
+          
+          // Preserve emoji reaction if it exists (use local state)
+          if (activeEmojiReaction !== null) {
+            cursorData.emojiReaction = activeEmojiReaction;
+            cursorData.emojiTimestamp = Date.now();
           }
           
           set(cursorRef, cursorData);
@@ -454,7 +632,23 @@ export default function GamePage() {
     const handleMouseLeave = () => {
       if (gameData?.id && user?.uid) {
         const cursorRef = ref(database, `gameSessions/${gameData.id}/cursors/${user.uid}`);
-        set(cursorRef, null);
+        
+        // Check if there's an active emoji before clearing
+        get(cursorRef).then((snapshot) => {
+          const cursorData = snapshot.val();
+          if (cursorData && cursorData.emojiReaction !== undefined) {
+            // Keep the cursor with emoji data but mark as inactive
+            set(cursorRef, {
+              ...cursorData,
+              x: -1, // Off-screen position
+              y: -1,
+              lastUpdate: Date.now()
+            });
+          } else {
+            // No emoji, safe to remove cursor
+            set(cursorRef, null);
+          }
+        });
       }
     };
 
@@ -465,7 +659,7 @@ export default function GamePage() {
       gameArea.removeEventListener('dragover', handleDragOver);
       gameArea.removeEventListener('mouseleave', handleMouseLeave);
     };
-  }, [user, gameData?.id, gamePhase, getPlayerColor]);
+  }, [user, gameData?.id, gamePhase, getPlayerColor, activeEmojiReaction ?? 'none']);
 
   // Listen to other players' cursors
   useEffect(() => {
@@ -825,6 +1019,96 @@ export default function GamePage() {
     }
   };
 
+  const handleEmojiClick = async (emojiIndex: number) => {
+    if (!gameData?.id || !user || emojiCooldown) return;
+
+    console.log('Emoji clicked:', emojiIndex);
+    console.log('Lottie animations loaded:', lottieAnimations.length);
+    console.log('Animation data:', lottieAnimations[emojiIndex]);
+
+    const emojiNames = ['celebrating', 'laughing', 'sad', 'crying', 'angry'];
+    const emojiName = emojiNames[emojiIndex];
+    const userName = user.displayName || 'Anonymous';
+
+    // Send chat message with emoji sticker data to the correct path
+    const chatRef = ref(database, `gameChats/${gameData.id}`);
+    const newMessageRef = ref(database, `gameChats/${gameData.id}/${Date.now()}`);
+    const messageData = {
+      id: Date.now().toString(),
+      senderId: user.uid,
+      senderName: userName,
+      message: `is ${emojiName}`,
+      isSystem: false,
+      isEmojiSticker: true,
+      emojiIndex: emojiIndex,
+      timestamp: Date.now()
+    };
+    
+    console.log('Sending message to Firebase:', messageData);
+    await set(newMessageRef, messageData);
+
+    // Set active emoji reaction in cursor
+    const cursorRef = ref(database, `gameSessions/${gameData.id}/cursors/${user.uid}`);
+    console.log('Updating cursor at path:', `gameSessions/${gameData.id}/cursors/${user.uid}`);
+    
+    get(cursorRef).then((snapshot) => {
+      const cursorData = snapshot.val();
+      console.log('Current cursor data:', cursorData);
+      
+      if (cursorData) {
+        // Update existing cursor with emoji
+        const updatedCursor = {
+          ...cursorData,
+          emojiReaction: emojiIndex,
+          emojiTimestamp: Date.now()
+        };
+        console.log('Setting updated cursor:', updatedCursor);
+        set(cursorRef, updatedCursor);
+      } else {
+        // Create new cursor with emoji if none exists
+        console.log('Creating new cursor with emoji');
+        const newCursor = {
+          playerId: user.uid,
+          playerName: user.displayName || 'Anonymous',
+          x: 50, // Center position
+          y: 50,
+          color: getPlayerColor(user.uid),
+          lastUpdate: Date.now(),
+          emojiReaction: emojiIndex,
+          emojiTimestamp: Date.now()
+        };
+        console.log('Setting new cursor:', newCursor);
+        set(cursorRef, newCursor);
+      }
+    });
+
+    // Set local state
+    setActiveEmojiReaction(emojiIndex);
+    setEmojiCooldown(true);
+
+    // Clear after 10 seconds
+    setTimeout(() => {
+      setActiveEmojiReaction(null);
+      setEmojiCooldown(false);
+      
+      console.log('Cleaning up emoji from cursor after 10 seconds');
+      
+      // Remove from cursor
+      get(cursorRef).then((snapshot) => {
+        const cursorData = snapshot.val();
+        console.log('Cursor data before cleanup:', cursorData);
+        
+        if (cursorData) {
+          const updated = { ...cursorData };
+          delete updated.emojiReaction;
+          delete updated.emojiTimestamp;
+          console.log('Setting cleaned cursor:', updated);
+          set(cursorRef, updated);
+        }
+      });
+    }, 10000);
+  };
+
   const handleSendMessage = async () => {
     if (!chatMessage.trim() || !gameData?.id) return;
     
@@ -866,11 +1150,10 @@ export default function GamePage() {
     if (!gameData?.id || !isUserHost) return;
     
     try {
-      await set(ref(database, `gameSessions/${gameData.id}/status`), 'finished');
-      await addChatMessage(gameData.id, 'Game ended by host', true);
-      setGamePhase('finished');
-      toast.success('Game ended for all players');
+      // Call the handleGameEnd function to properly end the game
+      await handleGameEnd();
     } catch (error: any) {
+      console.error('Failed to end game:', error);
       toast.error('Failed to end game');
     }
   };
@@ -1229,6 +1512,32 @@ export default function GamePage() {
                             </CardContent>
                           </Card>
 
+                          {/* Emoji Reactions */}
+                          {lottieAnimations.length === 5 && (
+                            <div className="flex items-center justify-center py-2 -space-x-2">
+                              {lottieAnimations.map((animation, index) => (
+                                <button
+                                  key={index}
+                                  onClick={() => handleEmojiClick(index)}
+                                  disabled={emojiCooldown}
+                                  className={`transition-all duration-200 ${
+                                    emojiCooldown 
+                                      ? 'opacity-50 cursor-not-allowed' 
+                                      : 'hover:scale-110 cursor-pointer active:scale-95'
+                                  } ${activeEmojiReaction === index ? 'ring-2 ring-primary rounded-full' : ''}`}
+                                  style={{ margin: 0, padding: 0 }}
+                                >
+                                  <Lottie 
+                                    animationData={animation} 
+                                    loop={true}
+                                    className={index === 3 ? "h-10 w-10" : "h-12 w-12 -ml-50"}
+                                    style={{ margin: 0, padding: 0 }}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
                           {/* Team Chat */}
                           <Card className="border-border/50">
                             <CardHeader>
@@ -1249,6 +1558,22 @@ export default function GamePage() {
                                           {message.isSystem ? (
                                             <div className="text-center text-muted-foreground italic">
                                               {message.message}
+                                            </div>
+                                          ) : (message as any).isEmojiSticker && lottieAnimations[(message as any).emojiIndex] ? (
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-medium">
+                                                {message.senderName}
+                                              </span>
+                                              <span className="text-muted-foreground">{message.message}</span>
+                                              <Lottie 
+                                                animationData={lottieAnimations[(message as any).emojiIndex]} 
+                                                loop={true}
+                                                className="h-8 w-8 inline-block"
+                                                style={{ margin: 0, padding: 0 }}
+                                              />
+                                              <span className="text-[10px] text-muted-foreground/70 ml-auto">
+                                                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                              </span>
                                             </div>
                                           ) : (
                                             <div>
@@ -1335,22 +1660,30 @@ export default function GamePage() {
                                 const pixelX = Math.max(0, Math.min((cursor.x / 100) * rect.width, rect.width));
                                 const pixelY = Math.max(0, Math.min((cursor.y / 100) * rect.height, rect.height));
                                 
+                                // Don't render cursor if it's off-screen (x: -1, y: -1) unless it has an emoji
+                                const isOffScreen = cursor.x === -1 && cursor.y === -1;
+                                const hasEmoji = (cursor as any).emojiReaction !== undefined;
+                                
+                                if (isOffScreen && !hasEmoji) return null;
+                                
                                 return (
                                   <div
                                     key={cursor.playerId}
                                     className="absolute pointer-events-none z-50 transition-all duration-150"
                                     style={{
-                                      left: pixelX,
-                                      top: pixelY,
+                                      left: isOffScreen ? 50 : pixelX, // Center if off-screen with emoji
+                                      top: isOffScreen ? 50 : pixelY,
                                       transform: 'translate(-8px, -8px)'
                                     }}
                                   >
-                                    <MousePointer2 
-                                      className="h-5 w-5"
-                                      style={{ color: cursor.color, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
-                                    />
+                                    {!isOffScreen && (
+                                      <MousePointer2 
+                                        className="h-5 w-5"
+                                        style={{ color: cursor.color, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
+                                      />
+                                    )}
                                     <div 
-                                      className="absolute top-6 left-0 px-2 py-1 rounded-md text-xs text-white shadow-lg whitespace-nowrap font-medium"
+                                      className="absolute top-6 left-0 px-2 py-1 rounded-md text-xs text-white shadow-lg whitespace-nowrap font-medium flex items-center gap-2"
                                       style={{ backgroundColor: cursor.color }}
                                     >
                                       {cursor.playerName}
@@ -1358,6 +1691,16 @@ export default function GamePage() {
                                         <span className="text-yellow-200">
                                           {` (${cursor.draggedWordText})`}
                                         </span>
+                                      )}
+                                      {(cursor as any).emojiReaction !== undefined && lottieAnimations[(cursor as any).emojiReaction] && (
+                                        <div className="inline-block">
+                                          <Lottie 
+                                            animationData={lottieAnimations[(cursor as any).emojiReaction]} 
+                                            loop={true}
+                                            className="h-6 w-6"
+                                            style={{ margin: 0, padding: 0 }}
+                                          />
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -1501,6 +1844,32 @@ export default function GamePage() {
                               </CardContent>
                             </Card>
 
+                            {/* Emoji Reactions */}
+                            {lottieAnimations.length === 5 && (
+                              <div className="flex items-center justify-center py-2 -space-x-2">
+                                {lottieAnimations.map((animation, index) => (
+                                  <button
+                                    key={index}
+                                    onClick={() => handleEmojiClick(index)}
+                                    disabled={emojiCooldown}
+                                    className={`transition-all duration-200 ${
+                                      emojiCooldown 
+                                        ? 'opacity-50 cursor-not-allowed' 
+                                        : 'hover:scale-110 cursor-pointer active:scale-95'
+                                    } ${activeEmojiReaction === index ? 'ring-2 ring-primary rounded-full' : ''}`}
+                                    style={{ margin: 0, padding: 0 }}
+                                  >
+                                    <Lottie 
+                                      animationData={animation} 
+                                      loop={true}
+                                      className={index === 4 ? "h-14 w-14" : "h-12 w-12"}
+                                      style={{ margin: 0, padding: 0 }}
+                                    />
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
                             {/* Team Chat */}
                             <Card className="border-border/50 flex-1 flex flex-col">
                               <CardHeader>
@@ -1521,6 +1890,22 @@ export default function GamePage() {
                                             {message.isSystem ? (
                                               <div className="text-center text-muted-foreground italic">
                                                 {message.message}
+                                              </div>
+                                            ) : (message as any).isEmojiSticker && lottieAnimations[(message as any).emojiIndex] ? (
+                                              <div className="flex items-center gap-2">
+                                                <span className="font-medium">
+                                                  {message.senderName}
+                                                </span>
+                                                <span className="text-muted-foreground">{message.message}</span>
+                                                <Lottie 
+                                                  animationData={lottieAnimations[(message as any).emojiIndex]} 
+                                                  loop={true}
+                                                  className="h-8 w-8 inline-block"
+                                                  style={{ margin: 0, padding: 0 }}
+                                                />
+                                                <span className="text-[10px] text-muted-foreground/70 ml-auto">
+                                                  {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
                                               </div>
                                             ) : (
                                               <div>

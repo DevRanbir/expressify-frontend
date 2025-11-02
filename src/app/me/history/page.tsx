@@ -106,7 +106,7 @@ type TrainingSession = {
   module: string;
   date: string;
   duration: string;
-  type: "Textual" | "Vocal" | "Visual";
+  type: "Textual" | "Vocal" | "Visual" | "Collaborative";
   status: "Excellent" | "Very Good" | "Good" | "Needs Work";
   score: number;
   gameId: string; // Store the game ID for retry functionality
@@ -160,9 +160,21 @@ const RowActions = ({ row, router }: { row: Row<TrainingSession>; router: Return
   const handleRetrySession = () => {
     const gameId = row.original.gameId;
     if (gameId) {
-      router.push(`/learning/textual/start?game=${gameId}`);
+      if (row.original.type === "Collaborative") {
+        // For collaborative games, redirect to create new game page
+        router.push('/training/social/collaborate');
+      } else {
+        router.push(`/learning/textual/start?game=${gameId}`);
+      }
     } else {
       console.error(`No game ID found for session: ${row.original.name}`);
+    }
+  };
+
+  const handleViewGameDetails = () => {
+    if (row.original.type === "Collaborative") {
+      // Create a detailed view for collaborative games
+      router.push(`/me/history/collaborative-details?gameId=${row.original.gameId}&sessionId=${row.original.id}`);
     }
   };
 
@@ -178,8 +190,17 @@ const RowActions = ({ row, router }: { row: Row<TrainingSession>; router: Return
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={handleViewFeedback}>View Feedback</DropdownMenuItem>
-        <DropdownMenuItem onClick={handleRetrySession}>Retry Session</DropdownMenuItem>
+        {row.original.type === "Collaborative" ? (
+          <>
+            <DropdownMenuItem onClick={handleViewGameDetails}>View Game Details</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleRetrySession}>Play Again</DropdownMenuItem>
+          </>
+        ) : (
+          <>
+            <DropdownMenuItem onClick={handleViewFeedback}>View Feedback</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleRetrySession}>Retry Session</DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuItem className="text-destructive">
           Delete Session
         </DropdownMenuItem>
@@ -333,7 +354,9 @@ export default function HistoryPage() {
     const allSessions: TrainingSession[] = [];
     let loadedCount = 0;
     const gamesToLoad = ['crossword-puzzle', 'chat-simulator', 'grammar-goblin', 'debate-master', 'vocabulary-quest', 'word-bucket'];
+    const totalToLoad = gamesToLoad.length + 1; // +1 for collaborative games
 
+    // Load existing individual games
     gamesToLoad.forEach((gameId) => {
       const gamesRef = ref(database, `games/${gameId}/${user.uid}`);
       
@@ -349,7 +372,7 @@ export default function HistoryPage() {
 
         loadedCount++;
         
-        if (loadedCount === gamesToLoad.length) {
+        if (loadedCount === totalToLoad) {
           // Sort by date descending
           allSessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           setData(allSessions);
@@ -358,11 +381,39 @@ export default function HistoryPage() {
       });
     });
 
+    // Load collaborative games from user's history
+    const collaborativeRef = ref(database, `users/${user.uid}/history/collaborative`);
+    onValue(collaborativeRef, (snapshot) => {
+      const collaborativeData = snapshot.val();
+      
+      if (collaborativeData) {
+        Object.entries(collaborativeData).forEach(([gameId, sessionData]) => {
+          const session = sessionData as TrainingSession;
+          // Only add if it's not already in the array (avoid duplicates)
+          if (!allSessions.find(s => s.id === session.id)) {
+            allSessions.push(session);
+          }
+        });
+      }
+
+      loadedCount++;
+      
+      if (loadedCount === totalToLoad) {
+        // Sort by date descending
+        allSessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setData(allSessions);
+        setIsLoading(false);
+      }
+    });
+
     return () => {
       gamesToLoad.forEach((gameId) => {
         const gamesRef = ref(database, `games/${gameId}/${user.uid}`);
         off(gamesRef);
       });
+      // Clean up collaborative games listener
+      const collaborativeRef = ref(database, `users/${user.uid}/history/collaborative`);
+      off(collaborativeRef);
     };
   }, [user]);
 
@@ -449,7 +500,8 @@ export default function HistoryPage() {
           className={cn(
             row.getValue("type") === "Textual" && "border-blue-500 text-blue-500",
             row.getValue("type") === "Vocal" && "border-green-500 text-green-500",
-            row.getValue("type") === "Visual" && "border-purple-500 text-purple-500"
+            row.getValue("type") === "Visual" && "border-purple-500 text-purple-500",
+            row.getValue("type") === "Collaborative" && "border-orange-500 text-orange-500"
           )}
         >
           {row.getValue("type")}

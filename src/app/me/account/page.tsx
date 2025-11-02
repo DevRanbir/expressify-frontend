@@ -34,12 +34,15 @@ import {
   MapPin,
   Building,
   Award,
-  TrendingUp
+  TrendingUp,
+  LogOut
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function AccountPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const router = useRouter();
   const [currentPlan, setCurrentPlan] = useState<string>("freemium");
   const [subscriptionData, setSubscriptionData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -308,6 +311,18 @@ export default function AccountPage() {
                   </Button>
 
                   <Separator />
+
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start" 
+                    onClick={async () => {
+                      await logout();
+                      router.push('/start');
+                    }}
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Switch Using Google
+                  </Button>
 
                   <Button variant="destructive" className="w-full justify-start" disabled>
                     <Shield className="h-4 w-4 mr-2" />

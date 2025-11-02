@@ -46,6 +46,10 @@ export default function SignInPage() {
       // Request additional scopes for profile information
       provider.addScope('profile');
       provider.addScope('email');
+      // Force account selection prompt
+      provider.setCustomParameters({
+        prompt: 'select_account'
+      });
       
       const result = await signInWithPopup(auth, provider);
       
