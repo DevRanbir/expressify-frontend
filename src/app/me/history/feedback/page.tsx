@@ -12,7 +12,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { database } from "@/lib/firebase";
@@ -90,7 +90,7 @@ interface ChatMessage {
   timestamp: number;
 }
 
-export default function FeedbackPage() {
+function FeedbackPageContent() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -550,5 +550,18 @@ Provide a helpful, encouraging response that addresses their question. Be specif
         </SidebarInset>
       </SidebarProvider>
     </ProtectedRoute>
+  );
+}
+
+// Wrapper component with Suspense
+export default function FeedbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    }>
+      <FeedbackPageContent />
+    </Suspense>
   );
 }
