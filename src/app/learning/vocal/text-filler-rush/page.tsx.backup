@@ -1,0 +1,971 @@
+"use client";
+
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
+import { ExpressifySidebar } from "@/components/ui/expressify-sidebar";
+import { Separator } from "@/components/ui/separator";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { 
+  Clock, 
+  Trophy, 
+  Mic, 
+  MicOff, 
+  CheckCircle2, 
+  XCircle, 
+  Bell, 
+  AlertCircle,
+  Loader2,
+  Zap,
+  Volume2,
+  Pause
+} from "lucide-react";
+import { ref, push } from "firebase/database";
+import { database } from "@/lib/firebase";
+import { useAuth } from "@/contexts/AuthContext";
+import { motion } from "framer-motion";
+import Groq from "groq-sdk";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+// Initialize Groq client
+const groq = new Groq({
+  apiKey: process.env.NEXT_PUBLIC_GROQ_API_KEY,
+  dangerouslyAllowBrowser: true,
+});
+
+interface GameStats {
+  totalWords: number;
+  correctWords: number;
+  incorrectWords: number;
+  wordsPerMinute: number;
+  accuracy: number;
+  score: number;
+  timeElapsed: number;
+}
+
+export default function TextFillerRushPage() {
+  const router = useRouter();
+  const { user } = useAuth();
+  
+  // Game state
+  const [gameStarted, setGameStarted] = useState(false);
+  const [gameEnded, setGameEnded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentText, setCurrentText] = useState<string[]>([]);
+  const [spokenWords, setSpokenWords] = useState<Set<number>>(new Set());
+  const [incorrectWords, setIncorrectWords] = useState<Set<number>>(new Set());
+  const [currentWordIndex, setCurrentWordIndex] = useState(0);
+  
+  // Speech recognition
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [speechRecognitionAvailable, setSpeechRecognitionAvailable] = useState(false);
+  const [browserCompatible, setBrowserCompatible] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  
+  // Timer and settings
+  const [timeRemaining, setTimeRemaining] = useState(0);
+  const [difficulty, setDifficulty] = useState(1);
+  const [duration, setDuration] = useState(10);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef = useRef<number>(0);
+  
+  // Use refs to avoid stale closure issues
+  const currentWordIndexRef = useRef(0);
+  const spokenWordsRef = useRef<Set<number>>(new Set());
+  const incorrectWordsRef = useRef<Set<number>>(new Set());
+  
+  // Stats
+  const [stats, setStats] = useState<GameStats>({
+    totalWords: 0,
+    correctWords: 0,
+    incorrectWords: 0,
+    wordsPerMinute: 0,
+    accuracy: 0,
+    score: 0,
+    timeElapsed: 0,
+  });
+
+  // Sync refs with state
+  useEffect(() => {
+    currentWordIndexRef.current = currentWordIndex;
+  }, [currentWordIndex]);
+
+  useEffect(() => {
+    spokenWordsRef.current = spokenWords;
+  }, [spokenWords]);
+
+  useEffect(() => {
+    incorrectWordsRef.current = incorrectWords;
+  }, [incorrectWords]);
+
+  // Check browser compatibility and load game settings
+  useEffect(() => {
+    // Check if Speech Recognition API is available
+    const hasSpeechRecognition = typeof window !== "undefined" && 
+      ("webkitSpeechRecognition" in window || "SpeechRecognition" in window);
+    
+    setSpeechRecognitionAvailable(hasSpeechRecognition);
+    setBrowserCompatible(hasSpeechRecognition);
+    
+    if (!hasSpeechRecognition) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Load game settings from session storage
+    const savedDifficulty = sessionStorage.getItem("vocal_game_difficulty");
+    const savedDuration = sessionStorage.getItem("vocal_game_duration");
+    
+    if (!savedDifficulty || !savedDuration) {
+      // No settings found, redirect to start page
+      router.push("/learning/vocal/start?game=text-filler-rush");
+      return;
+    }
+    
+    const diff = parseInt(savedDifficulty);
+    const dur = parseInt(savedDuration);
+    
+    setDifficulty(diff);
+    setDuration(dur);
+    setTimeRemaining(dur * 60);
+    
+    // Auto-start game
+    startGame(diff, dur);
+  }, [router]);
+
+  // Generate text using Groq API
+  const generateText = async (isFirstTime: boolean = false, difficultyLevel?: number) => {
+    const useDifficulty = difficultyLevel || difficulty;
+    
+    try {
+      const difficultyMap: Record<number, string> = {
+        1: "simple everyday vocabulary with short sentences (50-80 words)",
+        2: "moderate vocabulary with medium-length sentences (80-120 words)",
+        3: "advanced vocabulary with complex sentences (120-150 words)",
+        4: "sophisticated vocabulary with elaborate sentences and technical terms (150-200 words)",
+      };
+
+      const prompt = `Generate a ${difficultyMap[useDifficulty]} paragraph about a random interesting topic. 
+      Make it engaging and natural to read aloud. 
+      Focus on clarity and proper sentence structure.
+      DO NOT include any introductions, titles, or meta-commentary.
+      Just provide the pure paragraph text.`;
+
+      const completion = await groq.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content: "You are a content generator that creates engaging, clear paragraphs for reading practice. Output only the paragraph text, nothing else.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.8,
+        max_tokens: 500,
+      });
+
+      const generatedText = completion.choices[0]?.message?.content?.trim() || "";
+      const words = generatedText.split(/\s+/).filter(word => word.length > 0);
+      
+      if (isFirstTime) {
+        setCurrentText(words);
+        setStats(prev => ({ ...prev, totalWords: words.length }));
+      } else {
+        // Append new words when continuing
+        setCurrentText(prev => {
+          const newWords = [...prev, ...words];
+          setStats(s => ({ ...s, totalWords: newWords.length }));
+          return newWords;
+        });
+      }
+    } catch (error) {
+      console.error("Error generating text:", error);
+      // Fallback text
+      const fallbackTexts = [
+        "The art of communication is the language of leadership. Effective communication is not just about speaking clearly, but also about listening actively and understanding diverse perspectives. It bridges gaps between people and creates meaningful connections.",
+        "Technology has transformed how we learn and interact with information. From artificial intelligence to virtual reality, innovations continue to reshape our educational landscape. These tools offer unprecedented opportunities for personalized learning experiences.",
+        "The power of determination can overcome almost any obstacle. Success is not merely about talent or resources, but about persistence and the willingness to learn from failures. Every challenge presents an opportunity for growth.",
+      ];
+      const words = fallbackTexts[Math.floor(Math.random() * fallbackTexts.length)].split(/\s+/);
+      if (isFirstTime) {
+        setCurrentText(words);
+        setStats(prev => ({ ...prev, totalWords: words.length }));
+      } else {
+        setCurrentText(prev => {
+          const newWords = [...prev, ...words];
+          setStats(s => ({ ...s, totalWords: newWords.length }));
+          return newWords;
+        });
+      }
+    }
+  };
+
+  // Initialize speech recognition
+  const initializeSpeechRecognition = () => {
+    if (typeof window === "undefined" || !("webkitSpeechRecognition" in window)) {
+      return;
+    }
+    
+    const SpeechRecognition = (window as any).webkitSpeechRecognition;
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.continuous = true;
+    recognitionRef.current.interimResults = true;
+    recognitionRef.current.lang = "en-US";
+
+    recognitionRef.current.onresult = (event: any) => {
+      let interimTranscript = "";
+      let finalTranscript = "";
+      
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + " ";
+        } else {
+          interimTranscript += transcript + " ";
+        }
+      }
+      
+      // Process both interim and final transcripts for real-time feedback
+      const fullTranscript = (finalTranscript + interimTranscript).trim();
+      
+      if (fullTranscript) {
+        processSpokenText(fullTranscript);
+        setTranscript(fullTranscript);
+      }
+    };
+
+    recognitionRef.current.onerror = (event: any) => {
+      console.error("Speech recognition error:", event.error);
+      
+      // Handle different error types - fix network error
+      if (event.error === "no-speech") {
+        // Silently restart on no-speech
+        if (gameStarted && !gameEnded) {
+          setTimeout(() => {
+            try {
+              recognitionRef.current?.start();
+              setIsListening(true);
+            } catch (e) {
+              // Already listening
+            }
+          }, 100);
+        }
+      } else if (event.error === "network") {
+        // Network error - this often happens, just continue
+        console.warn("Network glitch detected, continuing...");
+        if (gameStarted && !gameEnded) {
+          setTimeout(() => {
+            try {
+              recognitionRef.current?.start();
+              setIsListening(true);
+            } catch (e) {
+              // Already listening
+            }
+          }, 500);
+        }
+      } else if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setIsListening(false);
+        alert("Microphone access is required. Please enable it in your browser settings.");
+      }
+    };
+
+    recognitionRef.current.onend = () => {
+      // Auto-restart if game is still active
+      if (gameStarted && !gameEnded) {
+        setTimeout(() => {
+          try {
+            recognitionRef.current?.start();
+            setIsListening(true);
+          } catch (e) {
+            // Already listening
+          }
+        }, 100);
+      }
+    };
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          // Ignore errors on cleanup
+        }
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, []);
+
+  // Process spoken text and match with current words - allows retry for incorrect words
+  const processSpokenText = (spokenText: string) => {
+    if (!spokenText || !currentText.length) return;
+
+    const spokenWordsArray = spokenText.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    
+    spokenWordsArray.forEach(spokenWord => {
+      // Clean the spoken word
+      const cleanSpoken = spokenWord.replace(/[^\w]/g, "");
+      if (!cleanSpoken || cleanSpoken.length < 2) return;
+      
+      // Check if it matches the current expected word
+      if (currentWordIndexRef.current < currentText.length) {
+        const expectedWord = currentText[currentWordIndexRef.current].toLowerCase().replace(/[^\w]/g, "");
+        
+        // Check if this word was previously marked as incorrect - allow retry
+        const currentIndex = currentWordIndexRef.current;
+        const wasIncorrect = incorrectWordsRef.current.has(currentIndex);
+        
+        if (cleanSpoken === expectedWord) {
+          // Correct word - remove from incorrect set if it was there
+          if (wasIncorrect) {
+            setIncorrectWords(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(currentIndex);
+              return newSet;
+            });
+            // Don't penalize again, just update correct count
+            setStats(prev => ({
+              ...prev,
+              correctWords: prev.correctWords + 1,
+              incorrectWords: Math.max(0, prev.incorrectWords - 1),
+            }));
+          } else {
+            setStats(prev => ({
+              ...prev,
+              correctWords: prev.correctWords + 1,
+            }));
+          }
+          
+          setSpokenWords(prev => new Set([...prev, currentIndex]));
+          setCurrentWordIndex(prev => prev + 1);
+        } else if (cleanSpoken.length > 2) {
+          // Check if spoken word matches any nearby word (flexibility)
+          let foundMatch = false;
+          for (let i = currentWordIndexRef.current; i < Math.min(currentWordIndexRef.current + 5, currentText.length); i++) {
+            const nearbyWord = currentText[i].toLowerCase().replace(/[^\w]/g, "");
+            if (cleanSpoken === nearbyWord) {
+              // Mark current word as incorrect if not already marked
+              if (!spokenWordsRef.current.has(currentIndex) && !incorrectWordsRef.current.has(currentIndex)) {
+                setIncorrectWords(prev => new Set([...prev, currentIndex]));
+                setStats(prev => ({
+                  ...prev,
+                  incorrectWords: prev.incorrectWords + 1,
+                }));
+              }
+              
+              // Skip to matched word
+              setSpokenWords(prev => new Set([...prev, i]));
+              setCurrentWordIndex(i + 1);
+              setStats(prev => ({
+                ...prev,
+                correctWords: prev.correctWords + 1,
+              }));
+              foundMatch = true;
+              break;
+            }
+          }
+        }
+      }
+    });
+  };
+
+  // Start game
+  const startGame = async (diff?: number, dur?: number) => {
+    const gameDifficulty = diff || difficulty;
+    const gameDuration = dur || duration;
+    
+    setGameStarted(true);
+    setGameEnded(false);
+    setSpokenWords(new Set());
+    setIncorrectWords(new Set());
+    setCurrentWordIndex(0);
+    setTranscript("");
+    setStats({
+      totalWords: 0,
+      correctWords: 0,
+      incorrectWords: 0,
+      wordsPerMinute: 0,
+      accuracy: 0,
+      score: 0,
+      timeElapsed: 0,
+    });
+    
+    // Reset refs
+    currentWordIndexRef.current = 0;
+    spokenWordsRef.current = new Set();
+    incorrectWordsRef.current = new Set();
+    startTimeRef.current = Date.now();
+    
+    await generateText(true, gameDifficulty);
+    
+    // Initialize speech recognition
+    initializeSpeechRecognition();
+    
+    // Auto-start microphone after a short delay
+    setTimeout(() => {
+      if (recognitionRef.current && speechRecognitionAvailable) {
+        try {
+          recognitionRef.current.start();
+          setIsListening(true);
+        } catch (e) {
+          console.error("Failed to start microphone:", e);
+        }
+      }
+    }, 1000);
+    
+    // Start timer
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          endGame();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    setIsLoading(false);
+  };
+
+  // Toggle listening
+  const toggleListening = () => {
+    if (!isListening) {
+      try {
+        recognitionRef.current?.start();
+        setIsListening(true);
+      } catch (e) {
+        console.log("Already listening");
+      }
+    } else {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
+  };
+
+  // Check if we need to generate more text
+  useEffect(() => {
+    if (gameStarted && !gameEnded && currentWordIndex >= currentText.length - 10 && !isLoading) {
+      // Generate more text when close to the end
+      generateText(false);
+    }
+  }, [currentWordIndex, gameStarted, gameEnded, currentText.length]);
+
+  // End game
+  const endGame = () => {
+    setGameEnded(true);
+    setGameStarted(false);
+    setIsListening(false);
+    
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    
+    recognitionRef.current?.stop();
+    
+    // Calculate final stats with NaN protection
+    const timeElapsedMinutes = Math.max(0.1, (duration * 60 - timeRemaining) / 60);
+    const wpm = timeElapsedMinutes > 0 ? Math.round(stats.correctWords / timeElapsedMinutes) : 0;
+    
+    // Calculate accuracy safely - avoid NaN
+    const totalAttempted = stats.correctWords + stats.incorrectWords;
+    const accuracy = totalAttempted > 0 
+      ? Math.round((stats.correctWords / totalAttempted) * 100) 
+      : 0;
+    
+    // Scoring system
+    let score = 0;
+    score += stats.correctWords * 10; // 10 points per correct word
+    score += wpm * 2; // Speed bonus
+    score += accuracy; // Accuracy bonus
+    score -= stats.incorrectWords * 5; // Penalty for incorrect words
+    score = Math.max(0, Math.round(score)); // Ensure non-negative integer
+    
+    // Ensure all values are valid numbers (no NaN, no Infinity)
+    const safeWpm = isFinite(wpm) ? wpm : 0;
+    const safeAccuracy = isFinite(accuracy) ? accuracy : 0;
+    const safeScore = isFinite(score) ? score : 0;
+    
+    const finalStats: GameStats = {
+      totalWords: stats.totalWords || 0,
+      correctWords: stats.correctWords || 0,
+      incorrectWords: stats.incorrectWords || 0,
+      wordsPerMinute: safeWpm,
+      accuracy: safeAccuracy,
+      score: safeScore,
+      timeElapsed: duration * 60 - timeRemaining,
+    };
+    
+    setStats(finalStats);
+    
+    // Save to Firebase
+    saveGameResults(finalStats);
+    
+    // Save to session storage for result page
+    sessionStorage.setItem("vocal_game_result", JSON.stringify({
+      score: finalStats.score,
+      timeElapsed: finalStats.timeElapsed,
+      difficulty,
+      gameId: "text-filler-rush",
+      pronunciationAccuracy: finalStats.accuracy,
+      fluencyScore: Math.min(100, safeWpm * 2),
+      clarityScore: finalStats.accuracy,
+    }));
+  };
+
+  // Save game results to Firebase
+  const saveGameResults = async (finalStats: GameStats) => {
+    if (!user) return;
+    
+    try {
+      // Sanitize data - ensure no NaN or Infinity values
+      const sanitizedStats = {
+        totalWords: isFinite(finalStats.totalWords) ? finalStats.totalWords : 0,
+        correctWords: isFinite(finalStats.correctWords) ? finalStats.correctWords : 0,
+        incorrectWords: isFinite(finalStats.incorrectWords) ? finalStats.incorrectWords : 0,
+        wordsPerMinute: isFinite(finalStats.wordsPerMinute) ? finalStats.wordsPerMinute : 0,
+        accuracy: isFinite(finalStats.accuracy) ? finalStats.accuracy : 0,
+        score: isFinite(finalStats.score) ? finalStats.score : 0,
+        timeElapsed: isFinite(finalStats.timeElapsed) ? finalStats.timeElapsed : 0,
+        difficulty: isFinite(difficulty) ? difficulty : 1,
+        duration: isFinite(duration) ? duration : 10,
+        timestamp: Date.now(),
+        gameType: "text-filler-rush",
+      };
+      
+      const gameResultsRef = ref(database, `users/${user.uid}/gameHistory/vocal/text-filler-rush`);
+      await push(gameResultsRef, sanitizedStats);
+    } catch (error) {
+      console.error("Error saving game results:", error);
+    }
+  };
+
+  // Format time display
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Navigate to results
+  const goToResults = () => {
+    router.push("/learning/vocal/result");
+  };
+
+  // Restart game
+  const restartGame = () => {
+    router.push("/learning/vocal/start?game=text-filler-rush");
+  };
+
+  return (
+    <ProtectedRoute>
+      <SidebarProvider>
+        <ExpressifySidebar />
+        <SidebarInset>
+          {/* Header */}
+          <header className="bg-background/95 sticky top-0 z-50 flex h-16 w-full shrink-0 items-center gap-2 border-b backdrop-blur transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+            <div className="flex items-center gap-2 px-4">
+              <SidebarTrigger className="-ml-1" />
+              <Separator orientation="vertical" className="mr-2 h-4" />
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem className="hidden md:block">
+                    <BreadcrumbLink href="/me/home">Home</BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="hidden md:block" />
+                  <BreadcrumbItem className="hidden md:block">
+                    <BreadcrumbLink href="/learning/vocal">Vocal Training</BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="hidden md:block" />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Text Filler Rush</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+
+            <div className="ml-auto flex items-center gap-2 px-4">
+              <Button variant="outline" size="sm">
+                <Bell className="h-4 w-4" />
+              </Button>
+            </div>
+          </header>
+
+          {/* Content */}
+          <div className="flex flex-1 flex-col gap-2 p-2 pt-0 sm:gap-4 sm:p-4">
+            <div className="min-h-[calc(100vh-4rem)] flex-1 rounded-lg sm:rounded-xl">
+              {/* Browser Compatibility Warning */}
+              {!browserCompatible ? (
+                <div className="p-3 sm:p-4 md:p-6">
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-center space-y-6 py-12 max-w-2xl mx-auto"
+                  >
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-5 w-5" />
+                      <AlertTitle className="text-lg font-bold">Speech Recognition Not Supported</AlertTitle>
+                      <AlertDescription className="mt-3 space-y-3">
+                        <p>Your current browser doesn't support the Web Speech API required for this game.</p>
+                        <div className="text-left">
+                          <p className="font-semibold mb-2">✅ Supported Browsers:</p>
+                          <ul className="list-disc list-inside space-y-1 ml-2">
+                            <li>Google Chrome (Desktop & Mobile) - Recommended</li>
+                            <li>Microsoft Edge (Latest version)</li>
+                            <li>Safari (macOS & iOS)</li>
+                            <li>Opera (Latest version)</li>
+                          </ul>
+                        </div>
+                        <p className="text-sm mt-4">Please switch to one of these browsers to play this game.</p>
+                      </AlertDescription>
+                    </Alert>
+                    <Button 
+                      onClick={() => router.push("/learning/vocal")} 
+                      variant="outline"
+                      size="lg"
+                    >
+                      Back to Vocal Training
+                    </Button>
+                  </motion.div>
+                </div>
+              ) : isLoading ? (
+                <div className="flex items-center justify-center h-full p-6">
+                  <div className="text-center space-y-4">
+                    <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+                    <p className="text-lg text-muted-foreground">Preparing your training session...</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col lg:flex-row h-full gap-4 p-3 sm:p-4 md:p-6">
+                {/* Game Header */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold tracking-tight sm:text-3xl flex items-center gap-2">
+                      <Zap className="h-6 w-6 text-primary sm:h-8 sm:w-8" />
+                      Text Filler Rush
+                    </h1>
+                    <p className="text-sm text-muted-foreground sm:text-base">
+                      Read the text aloud as fast and accurately as possible
+                    </p>
+                  </div>
+                  
+                  {gameStarted && (
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline" className="text-lg px-4 py-2">
+                        <Clock className="h-4 w-4 mr-2" />
+                        {formatTime(timeRemaining)}
+                      </Badge>
+                      <Badge variant="outline" className="text-lg px-4 py-2">
+                        <Trophy className="h-4 w-4 mr-2" />
+                        {stats.correctWords}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+
+                {/* Browser Compatibility Warning */}
+                {!speechRecognitionAvailable && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-center space-y-6 py-12"
+                  >
+                    <Card className="max-w-md mx-auto border-destructive">
+                      <CardHeader>
+                        <CardTitle className="text-destructive flex items-center justify-center gap-2">
+                          <XCircle className="h-5 w-5" />
+                          Speech Recognition Not Available
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="text-sm text-muted-foreground">
+                          <p className="mb-3">This game requires browser speech recognition support.</p>
+                          <p className="font-semibold mb-2">Please use one of these browsers:</p>
+                          <ul className="list-disc list-inside space-y-1">
+                            <li>Google Chrome (recommended)</li>
+                            <li>Microsoft Edge</li>
+                            <li>Safari (on macOS/iOS)</li>
+                          </ul>
+                        </div>
+                        <Button 
+                          onClick={() => router.push("/learning/vocal")} 
+                          variant="outline"
+                          size="lg" 
+                          className="w-full"
+                        >
+                          Back to Vocal Training
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+
+                {/* Game Controls */}
+                {!gameStarted && !gameEnded && speechRecognitionAvailable && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-center space-y-6 py-12"
+                  >
+                    <Card className="max-w-md mx-auto">
+                      <CardHeader>
+                        <CardTitle>Ready to Start?</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="text-sm text-muted-foreground">
+                          <p>• Click the microphone button to start speaking</p>
+                          <p>• Read the text as it appears on screen</p>
+                          <p>• Words turn green as you say them correctly</p>
+                          <p>• Keep reading until time runs out</p>
+                        </div>
+                        <Button 
+                          onClick={startGame} 
+                          size="lg" 
+                          className="w-full"
+                          disabled={isLoading}
+                        >
+                          {isLoading ? (
+                            <>
+                              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                              Generating Text...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="mr-2 h-5 w-5" />
+                              Start Game
+                            </>
+                          )}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+
+                {/* Game Area */}
+                {gameStarted && !gameEnded && (
+                  <div className="space-y-4">
+                    {/* Live Stats */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <Card>
+                        <CardContent className="pt-4 pb-3">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground">Correct</p>
+                            <p className="text-2xl font-bold text-green-500">{stats.correctWords}</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4 pb-3">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground">Incorrect</p>
+                            <p className="text-2xl font-bold text-red-500">{stats.incorrectWords}</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4 pb-3">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground">Progress</p>
+                            <p className="text-2xl font-bold text-blue-500">
+                              {Math.round((currentWordIndex / Math.max(currentText.length, 1)) * 100)}%
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4 pb-3">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground">Speed</p>
+                            <p className="text-2xl font-bold text-purple-500">
+                              {Math.round(stats.correctWords / Math.max((duration * 60 - timeRemaining) / 60, 0.1))} WPM
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Microphone Control */}
+                    <Card className="border-2 border-primary/20">
+                      <CardContent className="py-6">
+                        <div className="flex flex-col items-center gap-4">
+                          <Button
+                            onClick={toggleListening}
+                            size="lg"
+                            variant={isListening ? "destructive" : "default"}
+                            className="h-16 w-16 rounded-full"
+                          >
+                            {isListening ? (
+                              <Mic className="h-8 w-8 animate-pulse" />
+                            ) : (
+                              <MicOff className="h-8 w-8" />
+                            )}
+                          </Button>
+                          <div className="text-center w-full">
+                            <p className="text-sm font-medium">
+                              {isListening ? "🎤 Listening... Speak now!" : "Click to start speaking"}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {isListening ? "Reading your voice in real-time" : "Microphone is off"}
+                            </p>
+                            {/* Show what's being heard */}
+                            {isListening && transcript && (
+                              <div className="mt-3 p-2 rounded-lg bg-muted/50">
+                                <p className="text-xs text-muted-foreground mb-1">Hearing:</p>
+                                <p className="text-sm font-mono text-foreground">{transcript}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Text Display */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Volume2 className="h-5 w-5" />
+                          Read This Text Aloud
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {isLoading ? (
+                          <div className="flex items-center justify-center py-12">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                          </div>
+                        ) : (
+                          <div className="prose prose-lg max-w-none">
+                            <p className="leading-relaxed text-lg">
+                              {currentText.map((word, index) => {
+                                const isSpoken = spokenWords.has(index);
+                                const isIncorrect = incorrectWords.has(index);
+                                const isCurrent = index === currentWordIndex;
+                                
+                                return (
+                                  <motion.span
+                                    key={index}
+                                    initial={{ opacity: 0.4 }}
+                                    animate={{
+                                      opacity: isSpoken ? 1 : isIncorrect ? 0.5 : 0.7,
+                                      color: isSpoken 
+                                        ? "rgb(34, 197, 94)" // green-500
+                                        : isIncorrect 
+                                        ? "rgb(239, 68, 68)" // red-500
+                                        : isCurrent
+                                        ? "rgb(59, 130, 246)" // blue-500
+                                        : "currentColor",
+                                      fontWeight: isCurrent ? 700 : isSpoken ? 600 : 400,
+                                      scale: isCurrent ? 1.05 : 1,
+                                    }}
+                                    transition={{ duration: 0.2 }}
+                                    className={`inline-block mr-2 ${
+                                      isSpoken ? "opacity-100" : ""
+                                    }`}
+                                  >
+                                    {word}
+                                    {isSpoken && (
+                                      <CheckCircle2 className="inline h-3 w-3 ml-1 text-green-500" />
+                                    )}
+                                    {isIncorrect && (
+                                      <XCircle className="inline h-3 w-3 ml-1 text-red-500" />
+                                    )}
+                                  </motion.span>
+                                );
+                              })}
+                            </p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* End Game Button */}
+                    <div className="flex justify-center">
+                      <Button onClick={endGame} variant="outline" size="lg">
+                        <Pause className="mr-2 h-5 w-5" />
+                        End Game Early
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Results Screen */}
+                {gameEnded && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="space-y-6 py-8"
+                  >
+                    <div className="text-center space-y-2">
+                      <div className="flex justify-center">
+                        <div className="rounded-full bg-primary/10 p-6">
+                          <Trophy className="h-16 w-16 text-primary" />
+                        </div>
+                      </div>
+                      <h2 className="text-3xl font-bold">Game Complete!</h2>
+                      <p className="text-muted-foreground">Here are your results</p>
+                    </div>
+
+                    <Card className="max-w-2xl mx-auto">
+                      <CardHeader>
+                        <CardTitle className="text-center text-2xl">
+                          Score: {stats.score}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="text-center p-4 rounded-lg bg-muted">
+                            <p className="text-sm text-muted-foreground">Words Per Minute</p>
+                            <p className="text-3xl font-bold">{stats.wordsPerMinute}</p>
+                          </div>
+                          <div className="text-center p-4 rounded-lg bg-muted">
+                            <p className="text-sm text-muted-foreground">Accuracy</p>
+                            <p className="text-3xl font-bold">{stats.accuracy}%</p>
+                          </div>
+                          <div className="text-center p-4 rounded-lg bg-muted">
+                            <p className="text-sm text-muted-foreground">Correct Words</p>
+                            <p className="text-3xl font-bold text-green-500">{stats.correctWords}</p>
+                          </div>
+                          <div className="text-center p-4 rounded-lg bg-muted">
+                            <p className="text-sm text-muted-foreground">Incorrect Words</p>
+                            <p className="text-3xl font-bold text-red-500">{stats.incorrectWords}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                          <Button onClick={restartGame} size="lg" className="flex-1">
+                            Play Again
+                          </Button>
+                          <Button onClick={goToResults} variant="outline" size="lg" className="flex-1">
+                            View Detailed Results
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+              </div>
+            </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </ProtectedRoute>
+  );
+}

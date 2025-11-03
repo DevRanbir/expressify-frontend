@@ -211,11 +211,6 @@ const navigationItems: Record<string, NavigationItem> = {
     href: "/training/social/challenge",
     icon: Swords,
   },
-  "vc-person": {
-    name: "VC a Person",
-    href: "/training/vc-person",
-    icon: MessageCircle,
-  },
   "ai-calling": {
     name: "AI Calling",
     href: "/training/ai-calling",
@@ -377,7 +372,6 @@ const ExpressifyTreeNavigation = () => {
     "learning-path",
     "play-with-friend",
     "ai-calling",
-    "vc-person",
     "clarity-cafe"
   ];
 

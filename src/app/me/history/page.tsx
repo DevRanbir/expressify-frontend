@@ -163,7 +163,11 @@ const RowActions = ({ row, router }: { row: Row<TrainingSession>; router: Return
       if (row.original.type === "Collaborative") {
         // For collaborative games, redirect to create new game page
         router.push('/training/social/collaborate');
+      } else if (row.original.type === "Vocal") {
+        // For vocal games, redirect to vocal learning start page
+        router.push(`/learning/vocal/start?game=${gameId}`);
       } else {
+        // For textual games
         router.push(`/learning/textual/start?game=${gameId}`);
       }
     } else {
@@ -250,6 +254,7 @@ export default function HistoryPage() {
         "story-builder": "Story Builder",
         "vocabulary-quest": "Vocabulary Quest",
         "word-bucket": "Word Bucket",
+        "text-filler-rush": "Text Filler Rush",
       };
       return gameNames[gameId] || gameId.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
     };
@@ -261,6 +266,24 @@ export default function HistoryPage() {
       return "Needs Work";
     };
 
+    const getGameModule = (gameId: string): string => {
+      const vocalGames = ["text-filler-rush"];
+      const visualGames: string[] = []; // Add visual games here when available
+      
+      if (vocalGames.includes(gameId)) return "Vocal Practice";
+      if (visualGames.includes(gameId)) return "Visual Practice";
+      return "Textual Practice";
+    };
+
+    const getGameType = (gameId: string): "Textual" | "Vocal" | "Visual" | "Collaborative" => {
+      const vocalGames = ["text-filler-rush"];
+      const visualGames: string[] = []; // Add visual games here when available
+      
+      if (vocalGames.includes(gameId)) return "Vocal";
+      if (visualGames.includes(gameId)) return "Visual";
+      return "Textual";
+    };
+
     // For debate-master, use score instead of accuracy
     const displayScore = gameData.gameId === "debate-master" || gameId === "debate-master" 
       ? gameData.score 
@@ -269,10 +292,10 @@ export default function HistoryPage() {
     return {
       id: dataId,
       name: getGameName(gameData.gameId || gameId),
-      module: "Textual Practice",
+      module: getGameModule(gameData.gameId || gameId),
       date: new Date(gameData.timestamp).toISOString().split("T")[0],
       duration: formatDuration(gameData.timeElapsed),
-      type: "Textual",
+      type: getGameType(gameData.gameId || gameId),
       status: getStatus(displayScore),
       score: displayScore,
       gameId: gameData.gameId || gameId, // Store the game ID
@@ -353,32 +376,81 @@ export default function HistoryPage() {
 
     const allSessions: TrainingSession[] = [];
     let loadedCount = 0;
-    const gamesToLoad = ['crossword-puzzle', 'chat-simulator', 'grammar-goblin', 'debate-master', 'vocabulary-quest', 'word-bucket'];
+    const gamesToLoad = ['crossword-puzzle', 'chat-simulator', 'grammar-goblin', 'debate-master', 'vocabulary-quest', 'word-bucket', 'text-filler-rush'];
     const totalToLoad = gamesToLoad.length + 1; // +1 for collaborative games
 
     // Load existing individual games
     gamesToLoad.forEach((gameId) => {
-      const gamesRef = ref(database, `games/${gameId}/${user.uid}`);
-      
-      onValue(gamesRef, (snapshot) => {
-        const gamesData = snapshot.val();
+      if (gameId === 'text-filler-rush') {
+        // Special handling for text-filler-rush with different path structure
+        const gamesRef = ref(database, `games/${gameId}`);
         
-        if (gamesData) {
-          Object.entries(gamesData).forEach(([key, value]) => {
-            const gameData = value as GameData;
-            allSessions.push(convertGameDataToSession(gameId, gameData, key));
-          });
-        }
+        onValue(gamesRef, (snapshot) => {
+          const gamesData = snapshot.val();
+          
+          if (gamesData) {
+            Object.entries(gamesData).forEach(([sessionId, sessionData]) => {
+              const data = (sessionData as any).data;
+              if (data && data.userId === user.uid) {
+                // Convert the data structure to match GameData interface
+                const gameData: GameData = {
+                  gameId: 'text-filler-rush',
+                  score: data.score || 0,
+                  timeElapsed: data.timeElapsed || 0,
+                  difficulty: data.difficulty ? data.difficulty.toString() : '1',
+                  accuracy: data.accuracy || 0,
+                  status: data.status || 'completed',
+                  timestamp: data.timestamp || Date.now(),
+                  // Add text-filler-rush specific fields
+                  totalWords: data.totalWords,
+                  completedWords: data.wordsRead,
+                };
+                allSessions.push(convertGameDataToSession(gameId, gameData, sessionId));
+              }
+            });
+          }
 
-        loadedCount++;
+          loadedCount++;
+          
+          if (loadedCount === totalToLoad) {
+            // Sort by timestamp descending (latest first)
+            allSessions.sort((a, b) => {
+              const aTime = new Date(a.date).getTime();
+              const bTime = new Date(b.date).getTime();
+              return bTime - aTime;
+            });
+            setData(allSessions);
+            setIsLoading(false);
+          }
+        });
+      } else {
+        // Standard path for other games
+        const gamesRef = ref(database, `games/${gameId}/${user.uid}`);
         
-        if (loadedCount === totalToLoad) {
-          // Sort by date descending
-          allSessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-          setData(allSessions);
-          setIsLoading(false);
-        }
-      });
+        onValue(gamesRef, (snapshot) => {
+          const gamesData = snapshot.val();
+          
+          if (gamesData) {
+            Object.entries(gamesData).forEach(([key, value]) => {
+              const gameData = value as GameData;
+              allSessions.push(convertGameDataToSession(gameId, gameData, key));
+            });
+          }
+
+          loadedCount++;
+          
+          if (loadedCount === totalToLoad) {
+            // Sort by timestamp descending (latest first)
+            allSessions.sort((a, b) => {
+              const aTime = new Date(a.date).getTime();
+              const bTime = new Date(b.date).getTime();
+              return bTime - aTime;
+            });
+            setData(allSessions);
+            setIsLoading(false);
+          }
+        });
+      }
     });
 
     // Load collaborative games from user's history
@@ -399,8 +471,12 @@ export default function HistoryPage() {
       loadedCount++;
       
       if (loadedCount === totalToLoad) {
-        // Sort by date descending
-        allSessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        // Sort by timestamp descending (latest first)
+        allSessions.sort((a, b) => {
+          const aTime = new Date(a.date).getTime();
+          const bTime = new Date(b.date).getTime();
+          return bTime - aTime;
+        });
         setData(allSessions);
         setIsLoading(false);
       }

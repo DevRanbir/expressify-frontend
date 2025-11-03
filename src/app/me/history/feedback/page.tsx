@@ -115,6 +115,27 @@ function FeedbackPageContent() {
         // Try to fetch from different game types
         const gameTypes = ['crossword-puzzle', 'chat-simulator', 'grammar-goblin', 'debate-master', 'vocabulary-quest', 'word-bucket'];
         
+        // Handle text-filler-rush separately due to different path structure
+        if (gameName === 'Text Filler Rush' || gameName === 'text-filler-rush') {
+          const sessionRef = ref(database, `games/text-filler-rush/${sessionId}/data`);
+          const snapshot = await get(sessionRef);
+          
+          if (snapshot.exists()) {
+            setSessionData(snapshot.val() as GameSession);
+            
+            // Add initial welcome message with context for vocal training
+            const welcomeMessage: ChatMessage = {
+              role: 'assistant',
+              content: `Hello! I'm here to help you understand your performance in Text Filler Rush (Vocal Training). You can ask me about:\n\n• Reading speed and fluency analysis\n• How the scoring system works\n• Tips to improve pronunciation accuracy\n• Speech recognition optimization\n• Reading comprehension strategies\n• Any questions about your results\n\nWhat would you like to know about your vocal training session?`,
+              timestamp: Date.now(),
+            };
+            setChatMessages([welcomeMessage]);
+            setIsLoading(false);
+            return;
+          }
+        }
+        
+        // Try standard game paths for other games
         for (const gameType of gameTypes) {
           const sessionRef = ref(database, `games/${gameType}/${user.uid}/${sessionId}`);
           const snapshot = await get(sessionRef);
@@ -453,7 +474,6 @@ Provide a helpful, encouraging response that addresses their question. Be specif
                     <CardHeader className="border-b">
                       <CardTitle className="flex items-center gap-2">
                         <Bot className="h-5 w-5 text-primary" />
-                        AI Tutor
                       </CardTitle>
                       <CardDescription>
                         Ask questions about your performance
