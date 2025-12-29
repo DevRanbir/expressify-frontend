@@ -1,250 +1,143 @@
-# Expressify Frontend
+<!-- PROJECT IMAGE / BANNER -->
+<p align="center">
+  <img width="1841" height="1055" alt="image" src="https://github.com/user-attachments/assets/637342ba-c0b1-48c5-89cf-dd79ef53186f" />
+</p>
 
-A Next.js 16 Progressive Web App (PWA) for AI-powered communication training, designed to help introverts build confidence through interactive learning experiences.
+# 🚀 Expressify
 
-## 🚀 Tech Stack
+> AI-powered communication training platform designed to help introverts build confidence through interactive learning experiences.
 
-- **Framework**: Next.js 16 (App Router, Turbopack)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **UI Components**: shadcn/ui
-- **Authentication**: Firebase Auth (Google OAuth, Email/Password)
-- **Database**: Firebase Realtime Database
-- **Animations**: Framer Motion, GSAP
-- **State Management**: React Context API
-- **Icons**: Lucide React
+---
 
-## 📁 Project Structure
+## 📖 Description
 
+Expressify is an innovative web application that uses AI to help introverts and shy individuals improve their communication skills.  Through interactive exercises, real-time feedback, and personalized learning paths, users can build confidence in various social and professional scenarios.
+
+What makes it unique:
+- AI-powered conversation practice
+- Personalized learning paths
+- Real-time feedback system
+- Safe, judgment-free environment
+- Progressive Web App (PWA) support
+
+---
+
+## ✨ Features
+
+- **AI Conversation Partner** – Practice with AI in realistic scenarios
+- **Real-time Feedback** – Instant analysis of communication patterns
+- **Personalized Learning** – Custom paths based on your goals
+- **Scenario Library** – Various social and professional situations
+- **Progress Tracking** – Monitor improvement over time
+- **PWA Support** – Install as a mobile app
+
+---
+
+## 🧠 Tech Stack
+
+**Frontend**
+- Next.js
+- TypeScript
+- Tailwind CSS
+- React
+
+**Features**
+- PWA (Progressive Web App)
+- AI Integration
+- Real-time Communication Analysis
+
+**Deployment**
+- Railway
+
+---
+
+## 🏗️ Architecture / Workflow
+
+```text
+User → Select Scenario → AI Conversation → Real-time Feedback → Progress Analysis → Learning Recommendations
 ```
-frontend/
-├── src/
-│   ├── app/                      # Next.js App Router pages
-│   │   ├── landing/             # Landing page
-│   │   ├── start/               # Authentication (sign in/up)
-│   │   ├── me/                  # User dashboard section
-│   │   │   ├── home/           # User home dashboard
-│   │   │   ├── learning-path/  # Progress tracking & learning paths
-│   │   │   └── history/        # Activity history
-│   │   ├── learning/           # Main training sections
-│   │   │   ├── textual/        # Text-based training modules
-│   │   │   ├── vocal/          # Voice-based training modules
-│   │   │   └── visual/         # Visual communication training
-│   │   ├── training/           # Additional training features
-│   │   │   ├── ai-calling/     # AI phone conversation practice
-│   │   │   └── social/         # Multiplayer features
-│   │   │       └── collaborate/
-│   │   │           └── [gameCode]/  # Real-time collaborative games
-│   │   └── clarity-cafe/       # FAQ & Help Center
-│   ├── components/             # Reusable React components
-│   │   ├── ui/                # shadcn/ui components
-│   │   │   ├── expressify-sidebar.tsx  # Main navigation sidebar
-│   │   │   ├── training-bento.tsx      # Training cards grid
-│   │   │   └── learning-header.tsx     # Page headers
-│   │   ├── games/             # Game components
-│   │   └── ProtectedRoute.tsx # Auth guard wrapper
-│   ├── contexts/              # React contexts
-│   │   └── AuthContext.tsx   # Firebase auth state
-│   ├── hooks/                 # Custom React hooks
-│   │   ├── useCollaboration.ts  # Real-time game sessions
-│   │   └── use-mobile.ts       # Responsive utilities
-│   └── lib/                   # Utilities & services
-│       ├── firebase.ts        # Firebase configuration
-│       ├── wikipediaService.ts # Wikipedia API integration
-│       └── utils.ts           # Helper functions
-```
 
-## 🎯 Key Features
+---
 
-### Three-Track Learning System
-1. **Textual Practice** (`/learning/textual`)
-   - Chat Simulator, Debate Master, Story Builder
-   - Grammar Challenge, Vocabulary Quest, Word Puzzles
-
-2. **Vocal Practice** (`/learning/vocal`)
-   - Pronunciation Lab, Accent Coach, Tone Trainer
-   - Pitch Perfect, Speed Speaking, Vocal Variety
-
-3. **Visual Practice** (`/learning/visual`)
-   - Body Language Lab, Gesture Guide
-   - Presentation Posture, Eye Contact
-
-### User Dashboard (`/me`)
-- **Home**: Daily stats, recent activities, quick actions
-- **Learning Path**: Progress tracking with 4 structured learning paths
-  - Foundation Builder (Beginner)
-  - Confidence Developer (Intermediate)
-  - Presence Master (Advanced)
-  - Social Strategist (Expert)
-- **History**: Activity logs and performance analytics
-
-### Help & Support
-- **Clarity Cafe** (`/clarity-cafe`): FAQ page with searchable help topics
-  - Category filters (Getting Started, Training, AI Features, etc.)
-  - Expandable FAQ items
-  - Contact support options
-
-### Real-Time Collaboration
-- **Sentence Builder Game** (`/training/social/collaborate/[gameCode]`)
-  - Real-time multiplayer word placement
-  - Live cursor tracking across players
-  - Firebase-synced game state
-  - Timer system with automatic game end
-  - Results page with podium rankings
-  - Chat functionality
-  - Inactivity penalties
-
-### AI Features
-- **AI Calling** (`/training/ai-calling`)
-  - Phone-based conversation practice
-  - Real-time speech recognition
-  - AI-powered feedback
-
-## 🛠️ Getting Started
-
-### Prerequisites
-- Node.js 18+ installed
-- Firebase project configured
-- Environment variables set up
-
-### Installation
+## ⚙️ Installation & Setup
 
 ```bash
+# Clone the repository
+git clone https://github.com/DevRanbir/expressify-frontend.git
+
+# Navigate to project
+cd expressify-frontend
+
 # Install dependencies
 npm install
 
-# Run development server
+# Start development server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to view the app.
+---
 
-### Environment Variables
+## 🔐 Environment Variables
 
-Create a `.env.local` file in the frontend directory:
+Create a `.env` file and add:
 
 ```env
-NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
-NEXT_PUBLIC_FIREBASE_DATABASE_URL=your_database_url
+NEXT_PUBLIC_API_URL=your_backend_api_url
+NEXT_PUBLIC_AI_API_KEY=your_ai_api_key
 ```
 
-## 🎨 Design System
+---
 
-### Components
-- Built with **shadcn/ui** for consistent, accessible design
-- Custom animations using **Framer Motion** and **GSAP**
-- Responsive design with mobile-first approach
-- Dark/light mode support via **next-themes**
+## 🧪 Usage
 
-### Navigation
-- **ExpressifySidebar**: Collapsible sidebar with tree navigation
-- Hover-to-expand dropdown menus (2.5s auto-close)
-- Search functionality to filter training modules
-- Tooltips in collapsed mode
+* Step 1: Create your profile and set communication goals
+* Step 2: Choose a practice scenario (interview, networking, etc.)
+* Step 3: Engage with AI conversation partner
+* Step 4: Receive real-time feedback and tips
+* Step 5: Track progress and unlock new scenarios
 
-### Layout Patterns
-```tsx
-<ProtectedRoute>
-  <SidebarProvider>
-    <ExpressifySidebar />
-    <SidebarInset>
-      <LearningHeader trainingType="textual" />
-      <TrainingBento cards={trainingData} />
-    </SidebarInset>
-  </SidebarProvider>
-</ProtectedRoute>
+---
+
+## 🎥 Demo
+
+* **Live Demo:** [https://expressify-frontend.appwrite.network/landing](https://expressify-frontend.appwrite.network/landing)
+
+---
+
+## 📂 Project Structure
+
+```text
+expressify-frontend/
+├── app/
+│   ├── landing/
+│   ├── practice/
+│   └── dashboard/
+├── components/
+├── lib/
+├── public/
+├── next.config.js
+└── README.md
 ```
 
-## 🔥 Firebase Integration
+---
 
-### Authentication
-- Google OAuth sign-in
-- Email/password authentication
-- Protected routes with `ProtectedRoute` wrapper
+## 🚧 Future Improvements
 
-### Realtime Database Structure
-```
-gameSessions/
-  {gameId}/
-    ├── timer/              # Authoritative game timer
-    ├── gameState/          # Current sentence & progress
-    ├── playerScores/       # Individual player scores
-    ├── cursors/            # Real-time cursor positions
-    └── status/             # Game status (waiting/playing/finished)
+- [ ] Add video-based practice sessions
+- [ ] Implement group practice scenarios
+- [ ] Add voice tone analysis
+- [ ] Create community forum
+- [ ] Add gamification elements
 
-gameChats/
-  {gameId}/                 # Chat messages for game session
-```
+---
 
-## 📱 PWA Features
-- Installable on mobile devices
-- Offline-ready with service workers
-- Responsive design for all screen sizes
-- Touch-optimized interactions
+## 👥 Team / Author
 
-## 🚢 Build & Deploy
+* **Name:** DevRanbir
+* **GitHub:** [https://github.com/DevRanbir](https://github.com/DevRanbir)
 
-```bash
-# Build for production
-npm run build
+---
 
-# Start production server
-npm start
+## 📜 License
 
-# Build and export static files
-npm run build && npm run export
-```
-
-## 🧪 Development Commands
-
-```bash
-# Run development server with Turbopack
-npm run dev
-
-# Type checking
-npm run type-check
-
-# Lint code
-npm run lint
-
-# Format code
-npm run format
-```
-
-## 📄 Key Files to Know
-
-- **`src/app/layout.tsx`**: Root layout with AuthProvider
-- **`src/contexts/AuthContext.tsx`**: Firebase auth state management
-- **`src/components/ui/expressify-sidebar.tsx`**: Main navigation component
-- **`src/hooks/useCollaboration.ts`**: Real-time game session hooks
-- **`src/lib/firebase.ts`**: Firebase configuration & initialization
-
-## 🎯 Routing Convention
-
-- `/landing` - Public landing page
-- `/start/signin` - Sign in page
-- `/start/signup` - Sign up page
-- `/me/*` - User dashboard (protected)
-- `/learning/{type}` - Training tracks (protected)
-- `/training/*` - Additional training features (protected)
-- `/clarity-cafe` - Help & FAQ (protected)
-
-## 🤝 Contributing
-
-1. Create feature branches from `main`
-2. Follow TypeScript strict mode
-3. Use shadcn/ui components for consistency
-4. Test authentication flows
-5. Verify real-time Firebase synchronization
-
-## 📚 Learn More
-
-- [Next.js Documentation](https://nextjs.org/docs)
-- [shadcn/ui Components](https://ui.shadcn.com/)
-- [Firebase Documentation](https://firebase.google.com/docs)
-- [Tailwind CSS](https://tailwindcss.com/docs)
+This project is licensed under the MIT License.
